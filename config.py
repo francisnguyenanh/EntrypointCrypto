@@ -1,7 +1,7 @@
 # Cấu hình cho EntrypointCrypto
 
 # Cấu hình giao dịch
-MIN_WIN_RATE = 50  # Tỷ lệ thắng tối thiểu (%)
+MIN_WIN_RATE = 40  # Tỷ lệ thắng tối thiểu (%)
 MIN_PROFIT_POTENTIAL = 0.3  # Tiềm năng lợi nhuận tối thiểu (%)
 TRADING_FEE = 0.001  # Phí giao dịch Binance (0.1%)
 STOP_LOSS_PERCENTAGE = 0.3  # Stop loss (%)
@@ -40,5 +40,36 @@ TAKE_PROFIT_RANGE = [0.003, 0.005, 0.007]
 # Cấu hình timeframes
 TIMEFRAMES = ['15m', '30m', '1h', '4h']
 
+# Cấu hình sổ lệnh (Order Book)
+ORDER_BOOK_DEPTH = 20  # Độ sâu sổ lệnh
+BID_ASK_SPREAD_MAX = 0.5  # Spread tối đa giữa bid/ask (%)
+SUPPORT_RESISTANCE_PERIOD = 100  # Số candle để tính support/resistance
+VOLUME_ANALYSIS_PERIOD = 50  # Số candle để phân tích volume
+
+# Cấu hình timing vào lệnh
+ENTRY_CONFIRMATION_CANDLES = 3  # Số candle xác nhận tín hiệu
+MIN_VOLUME_INCREASE = 1.5  # Volume tăng tối thiểu so với trung bình
+PRICE_ACTION_CONFIRMATION = True  # Xác nhận price action
+
 # Cấu hình output
 TOP_COINS_COUNT = 3  # Số lượng coin tốt nhất hiển thị
+
+# Cấu hình tự động điều chỉnh để tìm ít nhất 1 coin
+AUTO_ADJUST_ENABLED = True  # Bật tự động điều chỉnh
+MIN_COINS_REQUIRED = 1  # Số coin tối thiểu cần tìm thấy
+ADJUSTMENT_STEPS = [
+    # Bước 1: Giảm win rate xuống 35%
+    {'MIN_WIN_RATE': 35, 'MIN_PROFIT_POTENTIAL': 0.3, 'SIGNAL_MODE': 'strict'},
+    # Bước 2: Giảm win rate xuống 30% và profit xuống 0.2%
+    {'MIN_WIN_RATE': 30, 'MIN_PROFIT_POTENTIAL': 0.2, 'SIGNAL_MODE': 'strict'},
+    # Bước 3: Giảm win rate xuống 25% và profit xuống 0.15%
+    {'MIN_WIN_RATE': 25, 'MIN_PROFIT_POTENTIAL': 0.15, 'SIGNAL_MODE': 'strict'},
+    # Bước 4: Chuyển sang chế độ linh hoạt với win rate 20%
+    {'MIN_WIN_RATE': 20, 'MIN_PROFIT_POTENTIAL': 0.1, 'SIGNAL_MODE': 'flexible'},
+    # Bước 5: Chế độ linh hoạt với win rate 10%
+    {'MIN_WIN_RATE': 10, 'MIN_PROFIT_POTENTIAL': 0.05, 'SIGNAL_MODE': 'flexible'},
+    # Bước 6: Chế độ rất linh hoạt - chỉ cần dự đoán LSTM tích cực và win rate > 5%
+    {'MIN_WIN_RATE': 5, 'MIN_PROFIT_POTENTIAL': 0.01, 'SIGNAL_MODE': 'lstm_only'},
+    # Bước 7: Cuối cùng - chỉ cần có tín hiệu và LSTM dương
+    {'MIN_WIN_RATE': 0, 'MIN_PROFIT_POTENTIAL': 0.01, 'SIGNAL_MODE': 'lstm_only'}
+]
