@@ -45,62 +45,23 @@ def get_account_info():
         
         print(f"\n💵 TỔNG GIÁ TRỊ FIAT: ${total_fiat_value:,.2f}")
         
-        # Hiển thị số dư crypto
-        print("\n🪙 SỐ DƯ CRYPTOCURRENCY:")
-        crypto_positions = []
+        # Tính tổng giá trị crypto (không in chi tiết từng coin)
         total_crypto_value = 0
-        
         for symbol, amounts in balance['total'].items():
             if amounts > 0 and symbol not in fiat_currencies:
                 try:
-                    # Lấy giá hiện tại
                     ticker = binance.fetch_ticker(f"{symbol}/USDT")
                     current_price = ticker['last']
                     value_usd = amounts * current_price
-                    
-                    crypto_positions.append({
-                        'symbol': symbol,
-                        'amount': amounts,
-                        'price': current_price,
-                        'value': value_usd
-                    })
                     total_crypto_value += value_usd
-                    
                 except:
-                    # Nếu không lấy được giá USDT, thử JPY
                     try:
                         ticker = binance.fetch_ticker(f"{symbol}/JPY")
                         current_price = ticker['last']
-                        value_usd = amounts * current_price / 150  # Convert JPY to USD
-                        
-                        crypto_positions.append({
-                            'symbol': symbol,
-                            'amount': amounts,
-                            'price': current_price,
-                            'value': value_usd,
-                            'currency': 'JPY'
-                        })
+                        value_usd = amounts * current_price / 150
                         total_crypto_value += value_usd
                     except:
-                        print(f"   {symbol}: {amounts:.6f} (Không lấy được giá)")
-        
-        # Sắp xếp theo giá trị
-        crypto_positions.sort(key=lambda x: x['value'], reverse=True)
-        
-        for pos in crypto_positions:
-            currency = pos.get('currency', 'USDT')
-            symbol_pair = f"{pos['symbol']}/{currency}"
-            if currency == 'JPY':
-                print(f"   {pos['symbol']}:")
-                print(f"     • Số lượng: {pos['amount']:.6f}")
-                print(f"     • Giá hiện tại: ¥{pos['price']:,.2f}")
-                print(f"     • Giá trị: ${pos['value']:,.2f}")
-            else:
-                print(f"   {pos['symbol']}:")
-                print(f"     • Số lượng: {pos['amount']:.6f}")
-                print(f"     • Giá hiện tại: ${pos['price']:,.4f}")
-                print(f"     • Giá trị: ${pos['value']:,.2f}")
-        
+                        pass
         print(f"\n🪙 TỔNG GIÁ TRỊ CRYPTO: ${total_crypto_value:,.2f}")
         
         # Tổng tài khoản
@@ -110,6 +71,8 @@ def get_account_info():
         # Kiểm tra orders đang mở
         print("\n📋 ORDERS ĐANG MỞ:")
         try:
+            # Tắt cảnh báo về fetchOpenOrders không có symbol
+            binance.options["warnOnFetchOpenOrdersWithoutSymbol"] = False
             open_orders = binance.fetch_open_orders()
             if open_orders:
                 print(f"   📊 Tổng cộng: {len(open_orders)} orders")
@@ -126,7 +89,7 @@ def get_account_info():
             'fiat_value': total_fiat_value,
             'crypto_value': total_crypto_value,
             'total_value': total_account_value,
-            'crypto_positions': crypto_positions
+            # Không trả về danh sách crypto_positions nữa
         }
         
     except Exception as e:

@@ -17,6 +17,10 @@ import config
 import trading_config
 from trading_functions_fixed import place_buy_order_with_sl_tp_fixed
 from account_info import get_account_info, test_email_notification, send_trading_notification
+import threading
+import json
+import json
+import time
 
 # Tắt tất cả warnings và logging không cần thiết
 warnings.filterwarnings('ignore')
@@ -36,6 +40,61 @@ except Exception as e:
 
 # Cấu hình trading từ file config
 TRADING_CONFIG = trading_config.TRADING_CONFIG
+
+# Global dictionary để lưu trữ các lệnh cần theo dõi
+ACTIVE_ORDERS = {}
+ORDER_MONITOR_THREAD = None
+MONITOR_RUNNING = False
+
+# Biến kiểm soát auto-retrading để tránh vòng lặp vô hạn
+AUTO_RETRADING_ENABLED = True
+RETRADING_COOLDOWN = 30  # Cooldown 30 giây giữa các lần auto-retrade
+LAST_RETRADE_TIME = 0
+
+# Hàm đánh giá và sắp xếp coins theo độ ưu tiên
+def evaluate_coin_priority(coin_data):
+    """Tính điểm ưu tiên cho coin dựa trên nhiều yếu tố"""
+    try:
+        score = 0
+        
+        # Confidence score (0-100)
+        confidence = coin_data.get('confidence_score', 0)
+        score += confidence * 0.4  # 40% trọng số
+        
+        # Risk/Reward ratio (càng cao càng tốt)
+        risk_reward = coin_data.get('risk_reward_ratio', 0)
+        score += min(risk_reward * 20, 50)  # Cap tại 50 điểm, 50% trọng số
+        
+        # Volume factor (volume lớn = tính thanh khoản cao)
+        total_volume = coin_data.get('total_volume', 0)
+        if total_volume > 10000:
+            score += 20
+        elif total_volume > 5000:
+            score += 10
+        elif total_volume > 1000:
+            score += 5
+        
+        # Spread factor (spread thấp = tốt hơn)
+        spread = coin_data.get('spread', 999)
+        if spread < 0.1:
+            score += 15
+        elif spread < 0.2:
+            score += 10
+        elif spread < 0.5:
+            score += 5
+        
+        # Trend signal bonus
+        trend_signal = coin_data.get('trend_signal', '')
+        if 'BULLISH' in trend_signal:
+            score += 15
+        elif 'NEUTRAL' in trend_signal:
+            score += 5
+        
+        return max(score, 0)  # Đảm bảo không âm
+        
+    except Exception as e:
+        print(f"⚠️ Lỗi đánh giá coin {coin_data.get('coin', 'Unknown')}: {e}")
+        return 0
 
 # Hàm chuyển đổi giá từ JPY sang USDT
 def convert_jpy_to_usdt(jpy_price):
@@ -93,6 +152,288 @@ def send_notification(message, urgent=False):
     except Exception as e:
         print(f"⚠️ Lỗi gửi thông báo: {e}")
 
+# Hàm gửi email thông báo lệnh đã khớp
+def send_order_filled_notification(order_info):
+    """Gửi thông báo email khi lệnh được khớp và tự động tìm cơ hội trading mới"""
+    try:
+        if not trading_config.NOTIFICATION_CONFIG.get('email_enabled', False):
+            print("📧 Email notification đã tắt")
+        else:
+            subject = f"🎯 LỆNH BÁN ĐÃ KHỚP - {order_info['symbol']}"
+            
+            message = f"""
+🎯 THÔNG BÁO LỆNH BÁN ĐÃ KHỚP
+
+📊 Thông tin lệnh:
+• Symbol: {order_info['symbol']}
+• Loại lệnh: {order_info['order_type']}
+• Order ID: {order_info['order_id']}
+• Số lượng: {order_info['filled_quantity']:.6f}
+• Giá khớp: ${order_info['filled_price']:.4f}
+• Tổng tiền nhận: ${order_info['total_received']:.2f}
+• Thời gian khớp: {order_info['filled_time']}
+
+💰 Thống kê:
+• Giá mua ban đầu: ${order_info.get('buy_price', 'N/A')}
+• Lợi nhuận/Lỗ: {order_info.get('profit_loss', 'N/A')}
+• % Thay đổi: {order_info.get('profit_percentage', 'N/A')}
+
+🔔 Lệnh đã được thực hiện thành công!
+🔄 Đang tìm kiếm cơ hội đầu tư tiếp theo...
+            """
+            
+            # Gửi qua send_trading_notification (sẽ gửi email nếu được cấu hình)
+            send_trading_notification(message)
+            
+            # Log chi tiết
+            print(f"📧 Đã gửi email thông báo lệnh khớp: {order_info['symbol']} - {order_info['order_id']}")
+        
+        # 🚀 TÍNH NĂNG MỚI: Tự động tìm cơ hội đầu tư tiếp theo
+        print(f"\n🔄 LỆNH BÁN {order_info['symbol']} ĐÃ KHỚP - BẮT ĐẦU TÌM CƠ HỘI MỚI...")
+        print("=" * 80)
+        
+        # Delay ngắn để đảm bảo số dư đã được cập nhật
+        time.sleep(3)
+        
+        # Gọi print_results để tìm và thực hiện trading mới
+        trigger_new_trading_cycle()
+        
+    except Exception as e:
+        print(f"⚠️ Lỗi gửi email thông báo lệnh khớp: {e}")
+
+# Hàm trigger trading cycle mới khi có lệnh bán khớp
+def trigger_new_trading_cycle():
+    """Tự động bắt đầu chu kỳ trading mới khi lệnh bán được khớp"""
+    global LAST_RETRADE_TIME
+    
+    try:
+        # Kiểm tra xem auto-retrading có được bật không
+        if not AUTO_RETRADING_ENABLED:
+            print("� Auto-retrading đã bị tắt")
+            return
+        
+        # Kiểm tra cooldown để tránh spam trading
+        current_time = time.time()
+        if current_time - LAST_RETRADE_TIME < RETRADING_COOLDOWN:
+            remaining_cooldown = RETRADING_COOLDOWN - (current_time - LAST_RETRADE_TIME)
+            print(f"⏳ Cooldown: Chờ {remaining_cooldown:.0f}s trước khi trading tiếp...")
+            return
+        
+        print("�🔍 Đang tìm kiếm cơ hội đầu tư mới với số dư hiện tại...")
+        
+        # Kiểm tra số dư hiện tại
+        current_balance = get_account_balance()
+        print(f"💰 Số dư hiện tại: ${current_balance:.2f}")
+        
+        # Chỉ tiếp tục nếu đủ số dư tối thiểu
+        if current_balance >= TRADING_CONFIG['min_order_value']:
+            print("✅ Đủ số dư để tiếp tục trading - Bắt đầu phân tích...")
+            
+            # Cập nhật thời gian retrade cuối cùng
+            LAST_RETRADE_TIME = current_time
+            
+            # Gọi hàm print_results để tìm và thực hiện trading mới
+            print_results()
+            
+        else:
+            print(f"⚠️ Số dư không đủ để trading (${current_balance:.2f} < ${TRADING_CONFIG['min_order_value']})")
+            print("💡 Chờ thêm lệnh bán khớp hoặc nạp thêm tiền")
+            
+    except Exception as e:
+        print(f"⚠️ Lỗi khi trigger trading cycle mới: {e}")
+
+# Hàm để bật/tắt auto-retrading
+def set_auto_retrading(enabled=True):
+    """Bật/tắt chức năng auto-retrading"""
+    global AUTO_RETRADING_ENABLED
+    AUTO_RETRADING_ENABLED = enabled
+    status = "BẬT" if enabled else "TẮT"
+    print(f"🔄 Auto-retrading đã được {status}")
+
+# Hàm để đặt cooldown time
+def set_retrading_cooldown(seconds=30):
+    """Đặt thời gian cooldown giữa các lần auto-retrade"""
+    global RETRADING_COOLDOWN
+    RETRADING_COOLDOWN = seconds
+    print(f"⏳ Retrading cooldown đã được đặt thành {seconds} giây")
+
+# Hàm kiểm tra trạng thái lệnh
+def check_order_status(order_id, symbol):
+    """Kiểm tra trạng thái của một lệnh cụ thể"""
+    try:
+        order = binance.fetch_order(order_id, symbol)
+        return {
+            'id': order['id'],
+            'symbol': order['symbol'],
+            'status': order['status'],
+            'type': order['type'],
+            'side': order['side'],
+            'amount': order['amount'],
+            'filled': order['filled'],
+            'remaining': order['remaining'],
+            'price': order['price'],
+            'average': order['average'],
+            'cost': order['cost'],
+            'timestamp': order['timestamp'],
+            'datetime': order['datetime']
+        }
+    except Exception as e:
+        print(f"⚠️ Lỗi kiểm tra order {order_id}: {e}")
+        return None
+
+# Hàm theo dõi tất cả lệnh đang hoạt động
+def monitor_active_orders():
+    """Thread function để theo dõi tất cả lệnh đang hoạt động"""
+    global MONITOR_RUNNING
+    
+    order_monitor_interval = TRADING_CONFIG.get('order_monitor_interval', 30)
+    order_monitor_error_sleep = TRADING_CONFIG.get('order_monitor_error_sleep', 60)
+    print(f"🔄 Order monitor interval: {order_monitor_interval}s | Error sleep: {order_monitor_error_sleep}s")
+    while MONITOR_RUNNING:
+        try:
+            if not ACTIVE_ORDERS:
+                time.sleep(10)  # Nếu không có lệnh nào, sleep 10 giây
+                continue
+            
+            orders_to_remove = []
+            
+            for order_id, order_info in ACTIVE_ORDERS.items():
+                try:
+                    # Kiểm tra trạng thái lệnh
+                    current_status = check_order_status(order_id, order_info['symbol'])
+                    
+                    if current_status is None:
+                        continue
+                    
+                    # Cập nhật thông tin
+                    ACTIVE_ORDERS[order_id]['last_checked'] = time.time()
+                    
+                    # Kiểm tra nếu lệnh đã được khớp (filled) hoặc đã hủy
+                    if current_status['status'] in ['closed', 'filled']:
+                        # Lệnh đã khớp hoàn toàn
+                        filled_info = {
+                            'order_id': order_id,
+                            'symbol': current_status['symbol'],
+                            'order_type': f"{current_status['type']} {current_status['side']}".upper(),
+                            'filled_quantity': current_status['filled'],
+                            'filled_price': current_status['average'] or current_status['price'],
+                            'total_received': current_status['cost'],
+                            'filled_time': current_status['datetime'],
+                            'buy_price': order_info.get('buy_price'),
+                            'profit_loss': 'N/A',
+                            'profit_percentage': 'N/A'
+                        }
+                        
+                        # Tính lợi nhuận nếu có giá mua
+                        if order_info.get('buy_price') and current_status['side'] == 'sell':
+                            buy_price = order_info['buy_price']
+                            sell_price = current_status['average'] or current_status['price']
+                            profit = (sell_price - buy_price) * current_status['filled']
+                            profit_percent = ((sell_price - buy_price) / buy_price) * 100
+                            
+                            filled_info['profit_loss'] = f"${profit:.2f}"
+                            filled_info['profit_percentage'] = f"{profit_percent:+.2f}%"
+                        
+                        # Gửi thông báo
+                        send_order_filled_notification(filled_info)
+                        
+                        # Đánh dấu để xóa khỏi danh sách theo dõi
+                        orders_to_remove.append(order_id)
+                        
+                        print(f"✅ Lệnh {order_id} đã khớp: {current_status['symbol']} - {current_status['filled']:.6f} @ ${current_status['average']:.4f}")
+                    
+                    elif current_status['status'] in ['canceled', 'expired', 'rejected']:
+                        # Lệnh đã bị hủy/từ chối
+                        print(f"❌ Lệnh {order_id} đã bị {current_status['status']}: {current_status['symbol']}")
+                        orders_to_remove.append(order_id)
+                    
+                    elif current_status['filled'] > order_info.get('last_filled', 0):
+                        # Lệnh khớp một phần
+                        order_info['last_filled'] = current_status['filled']
+                        print(f"🔄 Lệnh {order_id} khớp một phần: {current_status['filled']:.6f}/{current_status['amount']:.6f}")
+                
+                except Exception as e:
+                    print(f"⚠️ Lỗi kiểm tra lệnh {order_id}: {e}")
+                    continue
+            
+            # Xóa các lệnh đã hoàn thành khỏi danh sách theo dõi
+            for order_id in orders_to_remove:
+                del ACTIVE_ORDERS[order_id]
+                print(f"🗑️ Đã xóa lệnh {order_id} khỏi danh sách theo dõi")
+            
+            # Lưu danh sách lệnh vào file để backup
+            save_active_orders_to_file()
+            
+            # Sleep theo cấu hình trước khi kiểm tra lần tiếp theo
+            time.sleep(order_monitor_interval)
+            
+        except Exception as e:
+            print(f"⚠️ Lỗi trong monitor_active_orders: {e}")
+            time.sleep(order_monitor_error_sleep)  # Sleep lâu hơn nếu có lỗi
+
+# Hàm thêm lệnh vào danh sách theo dõi
+def add_order_to_monitor(order_id, symbol, order_type, buy_price=None):
+    """Thêm lệnh vào danh sách theo dõi"""
+    global ORDER_MONITOR_THREAD, MONITOR_RUNNING
+    
+    ACTIVE_ORDERS[order_id] = {
+        'symbol': symbol,
+        'order_type': order_type,
+        'buy_price': buy_price,
+        'added_time': time.time(),
+        'last_checked': time.time(),
+        'last_filled': 0
+    }
+    
+    print(f"📊 Đã thêm lệnh {order_id} vào danh sách theo dõi: {symbol}")
+    
+    # Khởi động thread monitor nếu chưa chạy
+    if not MONITOR_RUNNING:
+        MONITOR_RUNNING = True
+        ORDER_MONITOR_THREAD = threading.Thread(target=monitor_active_orders, daemon=True)
+        ORDER_MONITOR_THREAD.start()
+        print("🔄 Đã khởi động order monitoring thread")
+
+# Hàm lưu danh sách lệnh vào file
+def save_active_orders_to_file():
+    """Lưu danh sách lệnh đang theo dõi vào file"""
+    try:
+        with open('active_orders.json', 'w') as f:
+            json.dump(ACTIVE_ORDERS, f, indent=2)
+    except Exception as e:
+        print(f"⚠️ Lỗi lưu active orders: {e}")
+
+# Hàm đọc danh sách lệnh từ file
+def load_active_orders_from_file():
+    """Đọc danh sách lệnh từ file khi khởi động"""
+    global ACTIVE_ORDERS
+    try:
+        with open('active_orders.json', 'r') as f:
+            ACTIVE_ORDERS = json.load(f)
+        print(f"📂 Đã tải {len(ACTIVE_ORDERS)} lệnh từ file backup")
+        
+        # Khởi động monitor nếu có lệnh
+        if ACTIVE_ORDERS:
+            global MONITOR_RUNNING, ORDER_MONITOR_THREAD
+            if not MONITOR_RUNNING:
+                MONITOR_RUNNING = True
+                ORDER_MONITOR_THREAD = threading.Thread(target=monitor_active_orders, daemon=True)
+                ORDER_MONITOR_THREAD.start()
+                print("🔄 Đã khởi động order monitoring thread từ backup")
+    except FileNotFoundError:
+        print("📂 Không tìm thấy file backup, bắt đầu với danh sách lệnh trống")
+        ACTIVE_ORDERS = {}
+    except Exception as e:
+        print(f"⚠️ Lỗi đọc active orders: {e}")
+        ACTIVE_ORDERS = {}
+
+# Hàm dừng monitor
+def stop_order_monitor():
+    """Dừng order monitoring thread"""
+    global MONITOR_RUNNING
+    MONITOR_RUNNING = False
+    print("🛑 Đã dừng order monitoring thread")
+
 # Hàm lấy số dư tài khoản
 def get_account_balance():
     """Lấy số dư tài khoản USDT"""
@@ -106,24 +447,172 @@ def get_account_balance():
 
 # Hàm tính toán kích thước order
 def calculate_order_size(usdt_balance, num_recommendations, coin_price):
-    """Tính toán kích thước order dựa trên số dư và số lượng coin khuyến nghị"""
-    if num_recommendations == 1:
-        # All-in với 1 coin
-        allocation = usdt_balance * 0.95  # Giữ lại 5% để trả phí
-    elif num_recommendations == 2:
-        # Chia đôi tài khoản
-        allocation = usdt_balance * 0.475  # 47.5% cho mỗi coin
-    else:
+    """All-in toàn bộ số dư cho mỗi lệnh, không giới hạn, không chia nhỏ."""
+    if usdt_balance <= 0:
+        print(f"⚠️ Số dư không đủ để đặt lệnh. Hiện có ${usdt_balance:.2f}")
         return 0
-    
-    # Kiểm tra giá trị order tối thiểu
-    if allocation < TRADING_CONFIG['min_order_value']:
-        print(f"⚠️ Số dư không đủ. Cần tối thiểu ${TRADING_CONFIG['min_order_value']}, hiện có ${allocation:.2f}")
-        return 0
-    
-    # Tính số lượng coin có thể mua
-    quantity = allocation / coin_price
+    quantity = usdt_balance / coin_price
     return quantity
+
+# Hàm tính toán số lượng tối đa dựa trên thanh khoản sổ lệnh
+def calculate_max_quantity_from_liquidity(symbol, planned_quantity, order_book_analysis=None, side='buy'):
+    """
+    Tính toán số lượng tối đa có thể mua/bán dựa trên thanh khoản sổ lệnh
+    để đảm bảo không gây tác động quá lớn đến thị trường
+    
+    Args:
+        symbol: Symbol cần trade
+        planned_quantity: Số lượng dự định
+        order_book_analysis: Phân tích order book (optional)
+        side: 'buy' hoặc 'sell'
+    """
+    try:
+        # Lấy sổ lệnh nếu chưa có
+        if order_book_analysis is None:
+            order_book = get_order_book(symbol, limit=20)
+            order_book_analysis = analyze_order_book(order_book)
+        
+        if not order_book_analysis:
+            print(f"⚠️ Không thể lấy thông tin thanh khoản cho {symbol}")
+            # Fallback: giảm 50% số lượng dự định để an toàn
+            return planned_quantity * 0.5, "No liquidity data - reduced by 50%"
+        
+        # Lấy thông tin thanh khoản theo side
+        if side == 'buy':
+            # Mua cần thanh khoản bán (ask)
+            available_liquidity = order_book_analysis['available_liquidity_sell']
+            total_volume = order_book_analysis['total_ask_volume']
+            liquidity_type = "sell-side (asks)"
+        else:
+            # Bán cần thanh khoản mua (bid)
+            available_liquidity = order_book_analysis['available_liquidity_buy']
+            total_volume = order_book_analysis['total_bid_volume']
+            liquidity_type = "buy-side (bids)"
+        
+        spread = order_book_analysis['spread']
+        
+        # Các giới hạn an toàn
+        MAX_LIQUIDITY_USAGE = 0.15  # Không sử dụng quá 15% thanh khoản có sẵn
+        MAX_VOLUME_IMPACT = 0.10    # Không vượt quá 10% tổng volume
+        MAX_SPREAD_TOLERANCE = 0.5  # Nếu spread > 0.5% thì giảm size
+        
+        # Tính toán các giới hạn
+        max_by_liquidity = available_liquidity * MAX_LIQUIDITY_USAGE
+        max_by_volume = total_volume * MAX_VOLUME_IMPACT
+        
+        # Điều chỉnh theo spread
+        spread_factor = 1.0
+        if spread > MAX_SPREAD_TOLERANCE:
+            spread_factor = max(0.5, 1 - (spread - MAX_SPREAD_TOLERANCE) / 2)
+        
+        # Lấy giới hạn nhỏ nhất
+        max_quantity_base = min(max_by_liquidity, max_by_volume, planned_quantity)
+        max_quantity = max_quantity_base * spread_factor
+        
+        # Đảm bảo không nhỏ hơn minimum order
+        min_order_quantity = 0.001  # Minimum quantity
+        if max_quantity < min_order_quantity:
+            max_quantity = min_order_quantity
+        
+        # Tạo thông báo về lý do điều chỉnh
+        adjustment_reason = []
+        if max_quantity < planned_quantity:
+            if max_quantity == max_by_liquidity * spread_factor:
+                adjustment_reason.append(f"Liquidity limit ({MAX_LIQUIDITY_USAGE*100}% of {available_liquidity:.6f})")
+            if max_quantity == max_by_volume * spread_factor:
+                adjustment_reason.append(f"Volume impact limit ({MAX_VOLUME_IMPACT*100}% of {total_volume:.6f})")
+            if spread_factor < 1.0:
+                adjustment_reason.append(f"High spread adjustment ({spread:.3f}% > {MAX_SPREAD_TOLERANCE}%)")
+        
+        reason = " & ".join(adjustment_reason) if adjustment_reason else "No adjustment needed"
+        
+        print(f"📊 Liquidity Analysis for {symbol} ({side.upper()}):")
+        print(f"   💧 Available liquidity ({liquidity_type}): {available_liquidity:.6f}")
+        print(f"   📈 Total volume (top 10): {total_volume:.6f}")
+        print(f"   📏 Spread: {spread:.3f}%")
+        print(f"   🎯 Planned quantity: {planned_quantity:.6f}")
+        print(f"   ✅ Max safe quantity: {max_quantity:.6f}")
+        print(f"   📝 Reason: {reason}")
+        
+        return max_quantity, reason
+        
+    except Exception as e:
+        print(f"⚠️ Lỗi khi tính toán thanh khoản cho {symbol}: {e}")
+        # Fallback: giảm 30% để an toàn
+        return planned_quantity * 0.7, f"Error calculating liquidity: {e}"
+
+# Hàm kiểm tra tác động thị trường trước khi đặt lệnh
+def check_market_impact(symbol, quantity, order_book_analysis=None, side='buy'):
+    """
+    Kiểm tra tác động của lệnh đối với thị trường
+    
+    Args:
+        symbol: Symbol cần trade
+        quantity: Số lượng lệnh
+        order_book_analysis: Phân tích order book (optional)
+        side: 'buy' hoặc 'sell'
+    """
+    try:
+        if order_book_analysis is None:
+            order_book = get_order_book(symbol, limit=20)
+            order_book_analysis = analyze_order_book(order_book)
+        
+        if not order_book_analysis:
+            return {"impact": "unknown", "warning": "Cannot analyze market impact"}
+        
+        # Lấy thông tin thanh khoản theo side
+        if side == 'buy':
+            # Mua sẽ tác động đến ask side
+            available_liquidity = order_book_analysis['available_liquidity_sell']
+            total_volume = order_book_analysis['total_ask_volume']
+            side_name = "ask"
+        else:
+            # Bán sẽ tác động đến bid side
+            available_liquidity = order_book_analysis['available_liquidity_buy']
+            total_volume = order_book_analysis['total_bid_volume']
+            side_name = "bid"
+        
+        spread = order_book_analysis['spread']
+        
+        # Tính % sử dụng thanh khoản
+        liquidity_usage = (quantity / available_liquidity * 100) if available_liquidity > 0 else 100
+        volume_usage = (quantity / total_volume * 100) if total_volume > 0 else 100
+        
+        # Đánh giá mức độ tác động
+        impact_level = "low"
+        warnings = []
+        
+        if liquidity_usage > 15:
+            impact_level = "high"
+            warnings.append(f"High {side_name} liquidity usage: {liquidity_usage:.1f}%")
+        elif liquidity_usage > 8:
+            impact_level = "medium"
+            warnings.append(f"Medium {side_name} liquidity usage: {liquidity_usage:.1f}%")
+        
+        if volume_usage > 10:
+            impact_level = "high"
+            warnings.append(f"High {side_name} volume impact: {volume_usage:.1f}%")
+        elif volume_usage > 5:
+            if impact_level != "high":
+                impact_level = "medium"
+            warnings.append(f"Medium {side_name} volume impact: {volume_usage:.1f}%")
+        
+        if spread > 0.5:
+            if impact_level == "low":
+                impact_level = "medium"
+            warnings.append(f"Wide spread: {spread:.3f}%")
+        
+        return {
+            "impact": impact_level,
+            "liquidity_usage": liquidity_usage,
+            "volume_usage": volume_usage,
+            "spread": spread,
+            "warnings": warnings,
+            "side": side_name
+        }
+        
+    except Exception as e:
+        return {"impact": "unknown", "warning": f"Error analyzing impact: {e}"}
 
 # Hàm đặt lệnh mua với stop loss và take profit
 def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_price, tp2_price):
@@ -136,8 +625,34 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
         if not current_price:
             return {'status': 'failed', 'error': 'Cannot get current JPY price'}
         
+        print(f"\n🔄 Đang phân tích thanh khoản cho {trading_symbol}...")
+        
+        # Kiểm tra thanh khoản và điều chỉnh số lượng
+        order_book = get_order_book(symbol, limit=20)
+        order_book_analysis = analyze_order_book(order_book)
+        
+        # Tính toán số lượng tối đa an toàn dựa trên thanh khoản
+        safe_quantity, liquidity_reason = calculate_max_quantity_from_liquidity(
+            symbol, quantity, order_book_analysis
+        )
+        
+        # Kiểm tra tác động thị trường
+        market_impact = check_market_impact(symbol, safe_quantity, order_book_analysis)
+        
+        print(f"\n📊 LIQUIDITY & IMPACT ANALYSIS:")
+        print(f"🎯 Số lượng ban đầu: {quantity:.6f}")
+        print(f"✅ Số lượng an toàn: {safe_quantity:.6f}")
+        print(f"📝 Lý do điều chỉnh: {liquidity_reason}")
+        print(f"📈 Tác động thị trường: {market_impact['impact'].upper()}")
+        if market_impact.get('warnings'):
+            for warning in market_impact['warnings']:
+                print(f"⚠️ {warning}")
+        
+        # Sử dụng số lượng đã điều chỉnh
+        final_quantity = safe_quantity
+        
         print(f"\n🔄 Đang đặt lệnh mua {trading_symbol}...")
-        print(f"📊 Số lượng: {quantity:.6f}")
+        print(f"📊 Số lượng: {final_quantity:.6f}")
         print(f"💰 Giá entry: ¥{entry_price:.2f}")
         print(f"💰 Giá thị trường hiện tại: ¥{current_price:.2f}")
         
@@ -147,17 +662,17 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
             min_amount = market['limits']['amount']['min']
             min_cost = market['limits']['cost']['min']
             
-            if quantity < min_amount:
-                return {'status': 'failed', 'error': f'Quantity too small. Min: {min_amount}'}
+            if final_quantity < min_amount:
+                return {'status': 'failed', 'error': f'Quantity too small after liquidity adjustment. Min: {min_amount}, Adjusted: {final_quantity:.6f}'}
             
-            if quantity * current_price < min_cost:
-                return {'status': 'failed', 'error': f'Order value too small. Min: ${min_cost}'}
+            if final_quantity * current_price < min_cost:
+                return {'status': 'failed', 'error': f'Order value too small after liquidity adjustment. Min: ${min_cost}'}
                 
         except Exception as market_error:
             print(f"⚠️ Không thể kiểm tra market info: {market_error}")
         
         # 1. Đặt lệnh mua market
-        buy_order = binance.create_market_buy_order(trading_symbol, quantity)
+        buy_order = binance.create_market_buy_order(trading_symbol, final_quantity)
         print(f"✅ Lệnh mua thành công - ID: {buy_order['id']}")
         
         # Lấy giá thực tế đã mua
@@ -167,10 +682,14 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
         print(f"📈 Giá mua thực tế: ${actual_price:.4f}")
         print(f"📊 Số lượng thực tế: {actual_quantity:.6f}")
         
-        # Gửi thông báo
-        send_notification(f"✅ MUA {trading_symbol}: {actual_quantity:.6f} @ ${actual_price:.4f}")
+        # Gửi thông báo với thông tin thanh khoản
+        send_notification(
+            f"✅ MUA {trading_symbol}: {actual_quantity:.6f} @ ${actual_price:.4f}\n"
+            f"💧 Liquidity impact: {market_impact['impact']}\n"
+            f"📊 Volume usage: {market_impact.get('volume_usage', 0):.1f}%"
+        )
         
-        # 2. Đặt stop loss và take profit
+        # 2. Đặt stop loss và take profit với số lượng thực tế
         orders_placed = []
         
         try:
@@ -190,19 +709,25 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                 print(f"✅ OCO order đặt thành công - SL: ${stop_loss_usdt:.4f}, TP: ${tp1_usdt:.4f}")
                 send_notification(f"🛡️ OCO {usdt_symbol}: SL ${stop_loss_usdt:.4f} | TP ${tp1_usdt:.4f}")
                 
+                # Thêm OCO order vào danh sách theo dõi
+                add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
+                
             else:
                 # Đặt stop loss riêng
                 stop_order = binance.create_order(
-                    symbol=usdt_symbol,
+                    symbol=trading_symbol,
                     type='STOP_LOSS_LIMIT',
                     side='sell',
                     amount=actual_quantity,
-                    price=stop_loss_usdt * (1 - TRADING_CONFIG['stop_loss_buffer']),
-                    stopPrice=stop_loss_usdt,
+                    price=stop_loss * (1 - TRADING_CONFIG.get('stop_loss_buffer', 0.001)),
+                    stopPrice=stop_loss,
                     params={'timeInForce': 'GTC'}
                 )
                 orders_placed.append(stop_order)
                 print(f"✅ Stop Loss đặt thành công: ¥{stop_loss:.2f}")
+                
+                # Thêm stop loss vào danh sách theo dõi
+                add_order_to_monitor(stop_order['id'], trading_symbol, "STOP_LOSS", actual_price)
                 
         except Exception as sl_error:
             print(f"⚠️ Lỗi đặt stop loss: {sl_error}")
@@ -217,6 +742,9 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                 print(f"✅ Take Profit 2 đặt thành công: ¥{tp2_price:.2f}")
                 send_notification(f"🎯 TP2 {trading_symbol}: ¥{tp2_price:.2f}")
                 
+                # Thêm TP2 vào danh sách theo dõi
+                add_order_to_monitor(tp2_order['id'], trading_symbol, "TAKE_PROFIT", actual_price)
+                
         except Exception as tp2_error:
             print(f"⚠️ Không thể đặt TP2: {tp2_error}")
         
@@ -226,7 +754,11 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
             'status': 'success',
             'actual_price': actual_price,
             'actual_quantity': actual_quantity,
-            'trading_symbol': trading_symbol
+            'trading_symbol': trading_symbol,
+            'original_quantity': quantity,
+            'adjusted_quantity': final_quantity,
+            'liquidity_reason': liquidity_reason,
+            'market_impact': market_impact
         }
         
     except Exception as e:
@@ -239,6 +771,8 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
 def cancel_all_open_orders():
     """Hủy tất cả orders đang mở để tránh xung đột"""
     try:
+        # Tắt cảnh báo về fetchOpenOrders không có symbol
+        binance.options["warnOnFetchOpenOrdersWithoutSymbol"] = False
         open_orders = binance.fetch_open_orders()
         if open_orders:
             print(f"🔄 Tìm thấy {len(open_orders)} orders đang mở, đang hủy...")
@@ -314,16 +848,83 @@ def execute_auto_trading(recommendations):
         num_recommendations = len(recommendations)
         print(f"📊 Số coin khuyến nghị: {num_recommendations}")
         
-        if num_recommendations == 1:
+        # Kiểm tra số dư trước khi phân chia
+        valid_recommendations = []
+        for coin_data in recommendations:
+            original_symbol = f"{coin_data['coin']}/JPY"
+            current_jpy_price = get_current_jpy_price(original_symbol)
+            if current_jpy_price:
+                # Kiểm tra số dư tối thiểu cần thiết (50% của min_order_value để có buffer)
+                min_investment = TRADING_CONFIG['min_order_value'] * 150 * 0.5  # Convert to JPY
+                coin_data['current_price'] = current_jpy_price
+                coin_data['min_investment'] = min_investment
+                valid_recommendations.append(coin_data)
+        
+        # Ưu tiên logic phân bổ thông minh
+        if len(valid_recommendations) == 1:
             print("🎯 Chiến lược: ALL-IN với 1 coin (95% tài khoản)")
             allocation_per_coin = 0.95
-        elif num_recommendations == 2:
-            print("🎯 Chiến lược: CHIA ĐÔI tài khoản cho 2 coins")
-            allocation_per_coin = 0.475  # 47.5% cho mỗi coin
+        elif len(valid_recommendations) == 2:
+            # Kiểm tra xem có đủ số dư cho cả 2 không
+            balance = binance.fetch_balance()
+            jpy_balance = balance['free'].get('JPY', 0)
+            if jpy_balance == 0:
+                usdt_balance = balance['free'].get('USDT', 0)
+                jpy_balance = usdt_balance * 150  # 1 USD ≈ 150 JPY
+            
+            total_min_needed = sum(coin['min_investment'] for coin in valid_recommendations)
+            
+            if jpy_balance >= total_min_needed:
+                print("🎯 Chiến lược: CHIA ĐÔI tài khoản cho 2 coins")
+                allocation_per_coin = 0.475  # 47.5% cho mỗi coin
+            else:
+                print("⚠️ Không đủ số dư cho 2 coins - Ưu tiên ALL-IN coin tốt nhất")
+                print(f"💰 Số dư hiện tại: ¥{jpy_balance:.2f}")
+                print(f"💰 Cần tối thiểu: ¥{total_min_needed:.2f}")
+                
+                # Chọn coin có confidence score cao nhất hoặc risk/reward tốt nhất
+                best_coin = max(valid_recommendations, key=lambda x: evaluate_coin_priority(x))
+                valid_recommendations = [best_coin]
+                allocation_per_coin = 0.95
+                print(f"🎯 Đã chọn coin tốt nhất: {best_coin['coin']} (Score: {evaluate_coin_priority(best_coin):.1f})")
         else:
-            print("⚠️ Quá nhiều khuyến nghị, chỉ trade 2 coin đầu")
-            recommendations = recommendations[:2]
-            allocation_per_coin = 0.475
+            print("⚠️ Quá nhiều khuyến nghị, áp dụng logic ưu tiên")
+            # Sắp xếp theo score và chọn tối đa 2 coin tốt nhất
+            sorted_recommendations = sorted(valid_recommendations, 
+                                          key=lambda x: evaluate_coin_priority(x), 
+                                          reverse=True)
+            
+            # Hiển thị thông tin đánh giá
+            print("📊 ĐÁNH GIÁ COINS:")
+            for i, coin in enumerate(sorted_recommendations[:3]):  # Hiển thị top 3
+                score = evaluate_coin_priority(coin)
+                print(f"   {i+1}. {coin['coin']}: Score {score:.1f} "
+                      f"(Confidence: {coin.get('confidence_score', 0):.1f}, "
+                      f"R/R: {coin.get('risk_reward_ratio', 0):.2f})")
+            
+            valid_recommendations = sorted_recommendations[:2]
+            
+            # Kiểm tra lại số dư cho 2 coin đã chọn
+            balance = binance.fetch_balance()
+            jpy_balance = balance['free'].get('JPY', 0)
+            if jpy_balance == 0:
+                usdt_balance = balance['free'].get('USDT', 0)
+                jpy_balance = usdt_balance * 150
+            
+            total_min_needed = sum(coin['min_investment'] for coin in valid_recommendations)
+            
+            if jpy_balance >= total_min_needed:
+                allocation_per_coin = 0.475
+                print("🎯 Chiến lược: CHIA ĐÔI cho 2 coins tốt nhất")
+            else:
+                valid_recommendations = [valid_recommendations[0]]  # Chỉ lấy coin tốt nhất
+                allocation_per_coin = 0.95
+                print(f"🎯 Chiến lược: ALL-IN coin tốt nhất do hạn chế số dư")
+                print(f"   ➜ Đã chọn: {valid_recommendations[0]['coin']} "
+                      f"(Score: {evaluate_coin_priority(valid_recommendations[0]):.1f})")
+        
+        # Cập nhật recommendations với danh sách đã lọc
+        recommendations = valid_recommendations
         
         successful_trades = 0
         total_invested = 0
@@ -338,14 +939,15 @@ def execute_auto_trading(recommendations):
                 print(f"🚀 TRADING #{i+1}: {jpy_symbol}")
                 print(f"{'='*60}")
                 
-                # Lấy giá hiện tại JPY
-                current_jpy_price = get_current_jpy_price(original_symbol)
+                # Lấy giá hiện tại JPY (đã có từ validation trước đó)
+                current_jpy_price = coin_data.get('current_price')
                 if not current_jpy_price:
-                    print(f"❌ Không thể lấy giá {jpy_symbol}")
-                    continue
+                    current_jpy_price = get_current_jpy_price(original_symbol)
+                    if not current_jpy_price:
+                        print(f"❌ Không thể lấy giá {jpy_symbol}")
+                        continue
                 
-                # Tính toán số tiền đầu tư (JPY)
-                # Giả sử có 1,500,000 JPY testnet (tương đương $10,000)
+                # Lấy số dư hiện tại (real-time)
                 balance = binance.fetch_balance()
                 jpy_balance = balance['free'].get('JPY', 0)
                 
@@ -354,22 +956,44 @@ def execute_auto_trading(recommendations):
                     usdt_balance = balance['free'].get('USDT', 0)
                     jpy_balance = usdt_balance * 150  # 1 USD ≈ 150 JPY
                 
+                # Tính toán số tiền đầu tư với số dư hiện tại
                 investment_amount = jpy_balance * allocation_per_coin
                 
-                # Kiểm tra giới hạn (chuyển sang JPY)
+                # Kiểm tra giới hạn với logging chi tiết
                 min_order_jpy = TRADING_CONFIG['min_order_value'] * 150  # Convert USDT to JPY
+                print(f"💰 Số dư hiện tại: ¥{jpy_balance:.2f}")
+                print(f"🎯 Phân bổ: {allocation_per_coin*100:.1f}% = ¥{investment_amount:.2f}")
+                print(f"📏 Tối thiểu cần: ¥{min_order_jpy:.2f}")
+                
                 if investment_amount < min_order_jpy:
-                    print(f"❌ Số tiền đầu tư quá nhỏ: ¥{investment_amount:.2f}")
+                    print(f"❌ Số tiền đầu tư không đủ sau phân bổ: ¥{investment_amount:.2f} < ¥{min_order_jpy:.2f}")
+                    print(f"💡 Bỏ qua {coin_data['coin']} do thiếu vốn")
                     continue
                 
                 # Tính số lượng coin
                 quantity = investment_amount / current_jpy_price
                 
-                # Lấy thông tin giá từ khuyến nghị (JPY)
-                entry_jpy = coin_data['optimal_entry']
-                stop_loss_jpy = coin_data['stop_loss']
-                tp1_jpy = coin_data['tp1_price']
-                tp2_jpy = coin_data['tp2_price']
+                # Validation: Kiểm tra dữ liệu coin có đầy đủ không
+                required_keys = ['optimal_entry', 'stop_loss', 'tp1_price', 'tp2_price']
+                missing_keys = [key for key in required_keys if key not in coin_data]
+                
+                if missing_keys:
+                    print(f"❌ Dữ liệu coin {coin_data.get('coin', 'Unknown')} thiếu key: {missing_keys}")
+                    print(f"📊 Available keys: {list(coin_data.keys())}")
+                    
+                    # Tạo giá trị mặc định dựa trên giá hiện tại
+                    entry_jpy = current_jpy_price
+                    stop_loss_jpy = current_jpy_price * 0.97  # -3% stop loss
+                    tp1_jpy = current_jpy_price * 1.02       # +2% take profit 1
+                    tp2_jpy = current_jpy_price * 1.05       # +5% take profit 2
+                    
+                    print(f"⚠️ Sử dụng giá trị mặc định - Entry: ¥{entry_jpy:.2f}, SL: ¥{stop_loss_jpy:.2f}")
+                else:
+                    # Lấy thông tin giá từ khuyến nghị (JPY)
+                    entry_jpy = coin_data['optimal_entry']
+                    stop_loss_jpy = coin_data['stop_loss']
+                    tp1_jpy = coin_data['tp1_price']
+                    tp2_jpy = coin_data['tp2_price']
                 
                 print(f"💰 Đầu tư: ¥{investment_amount:.2f}")
                 print(f"📊 Số lượng: {quantity:.6f}")
@@ -523,6 +1147,16 @@ def analyze_order_book(order_book):
     bid_wall_price = next((bid[0] for bid in bids[:10] if bid[1] == max_bid_volume), best_bid)
     ask_wall_price = next((ask[0] for ask in asks[:10] if ask[1] == max_ask_volume), best_ask)
     
+    # Tính thanh khoản có sẵn trong khoảng giá hợp lý (±2% từ giá tốt nhất)
+    price_range_buy = best_ask * 1.02  # Cho phép mua với giá cao hơn 2%
+    price_range_sell = best_bid * 0.98  # Cho phép bán với giá thấp hơn 2%
+    
+    # Tính tổng volume có thể mua trong khoảng giá hợp lý
+    available_liquidity_buy = sum(ask[1] for ask in asks if ask[0] <= price_range_buy)
+    
+    # Tính tổng volume có thể bán trong khoảng giá hợp lý  
+    available_liquidity_sell = sum(bid[1] for bid in bids if bid[0] >= price_range_sell)
+    
     return {
         'best_bid': best_bid,
         'best_ask': best_ask,
@@ -537,7 +1171,11 @@ def analyze_order_book(order_book):
         'bid_wall_price': bid_wall_price,
         'ask_wall_price': ask_wall_price,
         'max_bid_volume': max_bid_volume,
-        'max_ask_volume': max_ask_volume
+        'max_ask_volume': max_ask_volume,
+        'available_liquidity_buy': available_liquidity_buy,
+        'available_liquidity_sell': available_liquidity_sell,
+        'price_range_buy': price_range_buy,
+        'price_range_sell': price_range_sell
     }
 
 # Hàm phân tích cơ hội giao dịch dựa trên sổ lệnh
@@ -628,7 +1266,8 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
         confidence_score += 25
     
     opportunity.update({
-        'entry_price': entry_price,
+        'optimal_entry': entry_price,  # Key chính xác cho trading
+        'entry_price': entry_price,    # Backup key 
         'stop_loss': stop_loss,
         'tp1_price': tp1_price,
         'tp2_price': tp2_price,
@@ -1605,6 +2244,72 @@ def print_results():
             print("\n🤖 AUTO TRADING: TẮT (chỉ hiển thị khuyến nghị)")
     
     print("=" * 80)
+
+# Khởi tạo order monitoring khi import module
+def initialize_order_monitoring():
+    """Khởi tạo hệ thống theo dõi lệnh"""
+    try:
+        print("🔄 Đang khởi tạo hệ thống theo dõi lệnh...")
+        load_active_orders_from_file()
+        print("✅ Hệ thống theo dõi lệnh đã sẵn sàng")
+    except Exception as e:
+        print(f"⚠️ Lỗi khởi tạo order monitoring: {e}")
+
+# Hàm xem danh sách lệnh đang theo dõi
+def show_active_orders():
+    """Hiển thị danh sách lệnh đang được theo dõi"""
+    if not ACTIVE_ORDERS:
+        print("📋 Không có lệnh nào đang được theo dõi")
+        return
+    
+    print(f"\n📋 DANH SÁCH LỆNH ĐANG THEO DÕI ({len(ACTIVE_ORDERS)} lệnh):")
+    print("=" * 80)
+    
+    for order_id, info in ACTIVE_ORDERS.items():
+        added_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(info['added_time']))
+        last_checked = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(info['last_checked']))
+        
+        print(f"🔹 Order ID: {order_id}")
+        print(f"   Symbol: {info['symbol']}")
+        print(f"   Type: {info['order_type']}")
+        print(f"   Buy Price: ${info.get('buy_price', 'N/A')}")
+        print(f"   Added: {added_time}")
+        print(f"   Last Checked: {last_checked}")
+        print(f"   Last Filled: {info.get('last_filled', 0):.6f}")
+        print("   " + "-" * 50)
+
+# Hàm xóa lệnh khỏi danh sách theo dõi
+def remove_order_from_monitor(order_id):
+    """Xóa lệnh khỏi danh sách theo dõi"""
+    if order_id in ACTIVE_ORDERS:
+        del ACTIVE_ORDERS[order_id]
+        save_active_orders_to_file()
+        print(f"✅ Đã xóa lệnh {order_id} khỏi danh sách theo dõi")
+    else:
+        print(f"⚠️ Không tìm thấy lệnh {order_id} trong danh sách theo dõi")
+
+# Hàm kiểm tra ngay trạng thái tất cả lệnh
+def check_all_orders_now():
+    """Kiểm tra ngay trạng thái tất cả lệnh đang theo dõi"""
+    if not ACTIVE_ORDERS:
+        print("📋 Không có lệnh nào đang được theo dõi")
+        return
+    
+    print(f"🔍 Đang kiểm tra {len(ACTIVE_ORDERS)} lệnh...")
+    
+    for order_id, order_info in ACTIVE_ORDERS.items():
+        try:
+            status = check_order_status(order_id, order_info['symbol'])
+            if status:
+                print(f"📊 {order_id}: {status['status']} - {status['filled']:.6f}/{status['amount']:.6f}")
+            else:
+                print(f"❌ {order_id}: Không thể kiểm tra")
+        except Exception as e:
+            print(f"⚠️ Lỗi kiểm tra {order_id}: {e}")
+
+# Khởi tạo khi import module
+print("🚀 Đang khởi tạo EntryPoint Crypto Trading Bot...")
+initialize_order_monitoring()
 
 # Chạy chương trình
 if __name__ == "__main__":

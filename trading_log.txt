@@ -13,3 +13,41 @@ Giá: ¥117572.00
 Thành công: 1/2
 Đầu tư: $2124.53
 Số dư: $10000.00
+[2025-07-28 06:45:45] 🚀 TRADING #1 THÀNH CÔNG
+Coin: ADA/JPY
+Đầu tư: ¥702443.98
+Số lượng: 5744.553360
+Giá: ¥122.30
+[2025-07-28 06:45:49] 🚀 TRADING #2 THÀNH CÔNG
+Coin: XRP/JPY
+Đầu tư: ¥368721.82
+Số lượng: 779.769527
+Giá: ¥472.96
+[2025-07-28 06:45:52] 📊 TỔNG KẾT TRADING
+Thành công: 2/2
+Đầu tư: $1071165.80
+Số dư: $522277.79
+[2025-07-28 07:15:06] 🚀 TRADING #1 THÀNH CÔNG
+Coin: XLM/JPY
+Đầu tư: ¥313475.35
+Số lượng: 4766.236188
+Giá: ¥65.88
+[2025-07-28 07:15:09] ❌ Lỗi khi trading ADA: 'optimal_entry'
+[2025-07-28 07:15:10] 📊 TỔNG KẾT TRADING
+Thành công: 1/2
+Đầu tư: $313475.35
+Số dư: $522277.79
+[2025-07-28 07:22:04] 🚀 TRADING #1 THÀNH CÔNG
+Coin: ADA/JPY
+Đầu tư: ¥164328.51
+Số lượng: 1331.241957
+Giá: ¥123.46
+[2025-07-28 07:22:09] 🚀 TRADING #2 THÀNH CÔNG
+Coin: XLM/JPY
+Đầu tư: ¥86262.28
+Số lượng: 1308.193508
+Giá: ¥65.97
+[2025-07-28 07:22:12] 📊 TỔNG KẾT TRADING
+Thành công: 2/2
+Đầu tư: $250590.79
+Số dư: $522277.79

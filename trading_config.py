@@ -11,8 +11,8 @@
 # 4. Thay thế các giá trị dưới đây
 
 BINANCE_CONFIG = {
-    'apiKey': '51s73pfeptNTANWnjmmdJcdZ5a3Fr3a9Yp57lGic4MW0t3xfdzLssLXxaICxaT7Y',  # Thay bằng API key testnet
-    'secret': '3b1aV0Fufo76bxLawFs39y84Z94PJIS8GrNwKanrVNkEwyGKCWSY7hwmHWI3vku6',   # Thay bằng secret testnet
+    'apiKey': 'ENQmmQnIRMtL4B1sFS9RBuYkOltJZ7MiLfkQRoD1RXn1Omz3PfTRu84I5XDqgYjQ',  # Thay bằng API key testnet
+    'secret': 'ZIlxj2u2do1Ksl9aMvPyWgQT3BF8WgaJfQEYSrWoOnhNmddyCpBm9ftQ3DvIx4RB',   # Thay bằng secret testnet
     'sandbox': True,  # PHẢI LÀ True cho testnet
     'enableRateLimit': True,
     'timeout': 30000,
@@ -47,6 +47,9 @@ TRADING_CONFIG = {
     # Timeouts
     'order_timeout': 30,  # Timeout cho orders (seconds)
     'price_check_interval': 5,  # Interval kiểm tra giá (seconds)
+    # Order monitoring intervals (seconds)
+    'order_monitor_interval': 60,  # Chu kỳ kiểm tra trạng thái lệnh (mặc định 30s)
+    'order_monitor_error_sleep': 120,  # Thời gian sleep khi lỗi (mặc định 60s)
     
     # Logging
     'log_trades': True,  # Ghi log các trades
@@ -83,8 +86,8 @@ NOTIFICATION_CONFIG = {
     'email_enabled': True,  # TẮT email - Không cần thiết cho testnet
     'email_smtp': 'smtp.gmail.com',
     'email_port': 587,
-    'email_user': 'kyoto20200511@gmail.com',
-    'email_password': 'nguyenanh231287',  # Không cần thiết khi tắt email
+    'email_user': 'tradebotonlyone@gmail.com',
+    'email_password': 'lexbgslzxcuamevn',  # Không cần thiết khi tắt email
     'email_to': 'onlyone231287@gmail.com',  # Không cần thiết khi tắt email
 }
 
