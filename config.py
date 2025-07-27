@@ -6,16 +6,18 @@ MIN_PROFIT_POTENTIAL = 0.3  # Tiềm năng lợi nhuận tối thiểu (%)
 TRADING_FEE = 0.001  # Phí giao dịch Binance (0.1%)
 STOP_LOSS_PERCENTAGE = 0.3  # Stop loss (%)
 
-# Cấu hình LSTM
-LOOK_BACK_PERIOD = 20  # Số ngày nhìn lại cho LSTM (giảm từ 60 xuống 20)
-LSTM_EPOCHS = 5  # Số epochs training (giảm từ 10 xuống 5)
-LSTM_BATCH_SIZE = 16  # Batch size (giảm từ 32 xuống 16)
+# Cấu hình LSTM - TỐI ƯU TỐC ĐỘ
+LOOK_BACK_PERIOD = 10  # Giảm từ 20 xuống 10 để tăng tốc
+LSTM_EPOCHS = 3  # Giảm từ 5 xuống 3
+LSTM_BATCH_SIZE = 32  # Tăng batch size để train nhanh hơn
+LSTM_UNITS = 10  # Số units trong LSTM layer (giảm độ phức tạp)
 TRAIN_TEST_SPLIT = 0.8  # Tỷ lệ train/test
 
-# Cấu hình API
-API_DELAY = 1  # Delay giữa các API calls (giây)
-DATA_LIMIT = 5000  # Số lượng candles lấy từ API (tăng để có đủ dữ liệu sau resample)
-MIN_DATA_LENGTH = 50  # Số lượng dữ liệu tối thiểu (giảm từ 200 xuống 50)
+# Cấu hình API - TỐI ƯU TỐC ĐỘ
+API_DELAY = 0.2  # Giảm delay từ 1 xuống 0.2 giây
+DATA_LIMIT = 500  # Giảm từ 5000 xuống 500 để tăng tốc
+MIN_DATA_LENGTH = 30  # Giảm từ 50 xuống 30
+ORDER_BOOK_DEPTH = 10  # Giảm depth của order book
 
 # Cấu hình validation
 MAX_PRICE_PREDICTION_RATIO = 10  # Giá dự đoán không được vượt quá N lần giá hiện tại
@@ -51,12 +53,9 @@ ENTRY_CONFIRMATION_CANDLES = 3  # Số candle xác nhận tín hiệu
 MIN_VOLUME_INCREASE = 1.5  # Volume tăng tối thiểu so với trung bình
 PRICE_ACTION_CONFIRMATION = True  # Xác nhận price action
 
-# Cấu hình output
-TOP_COINS_COUNT = 3  # Số lượng coin tốt nhất hiển thị
-
-# Cấu hình tự động điều chỉnh để tìm ít nhất 1 coin
-AUTO_ADJUST_ENABLED = True  # Bật tự động điều chỉnh
-MIN_COINS_REQUIRED = 1  # Số coin tối thiểu cần tìm thấy
+# Cấu hình kết quả
+TOP_COINS_COUNT = 2  # Giảm từ 3 xuống 2 coins cho mỗi phương pháp
+MIN_COINS_REQUIRED = 1
 ADJUSTMENT_STEPS = [
     # Bước 1: Giảm win rate xuống 35%
     {'MIN_WIN_RATE': 35, 'MIN_PROFIT_POTENTIAL': 0.3, 'SIGNAL_MODE': 'strict'},
@@ -73,3 +72,6 @@ ADJUSTMENT_STEPS = [
     # Bước 7: Cuối cùng - chỉ cần có giá và LSTM không null
     {'MIN_WIN_RATE': 0, 'MIN_PROFIT_POTENTIAL': 0.001, 'SIGNAL_MODE': 'emergency'}
 ]
+
+# Tự động điều chỉnh
+AUTO_ADJUST_ENABLED = True

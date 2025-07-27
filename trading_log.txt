@@ -1,0 +1,15 @@
+[2025-07-27 18:44:01] ✅ MUA SUI/JPY: 14.190000 @ $618.5000
+[2025-07-27 18:44:01] ❌ Lỗi khi đặt lệnh mua SUI/JPY: name 'usdt_symbol' is not defined
+[2025-07-27 18:44:01] ❌ Trading SUI/JPY thất bại: name 'usdt_symbol' is not defined
+[2025-07-27 18:44:04] ✅ MUA XLM/JPY: 71.200000 @ $64.6100
+[2025-07-27 18:44:04] ❌ Lỗi khi đặt lệnh mua XLM/JPY: name 'usdt_symbol' is not defined
+[2025-07-27 18:44:04] ❌ Trading XLM/JPY thất bại: name 'usdt_symbol' is not defined
+[2025-07-27 18:53:04] 🚀 TRADING #1 THÀNH CÔNG
+Coin: BNB/JPY
+Đầu tư: ¥2124.53
+Số lượng: 0.018075
+Giá: ¥117572.00
+[2025-07-27 18:53:07] 📊 TỔNG KẾT TRADING
+Thành công: 1/2
+Đầu tư: $2124.53
+Số dư: $10000.00
