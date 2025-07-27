@@ -47,13 +47,29 @@ TRADING_CONFIG = {
     # Timeouts
     'order_timeout': 30,  # Timeout cho orders (seconds)
     'price_check_interval': 5,  # Interval kiểm tra giá (seconds)
-    # Order monitoring intervals (seconds)
-    'order_monitor_interval': 60,  # Chu kỳ kiểm tra trạng thái lệnh (mặc định 30s)
-    'order_monitor_error_sleep': 120,  # Thời gian sleep khi lỗi (mặc định 60s)
+    
+    # Trading and monitoring intervals (seconds)
+    'analysis_interval': 300,  # Chu kỳ phân tích thị trường (5 phút)
+    'order_monitor_interval': 5,  # Chu kỳ kiểm tra trạng thái lệnh (5 phút)
+    'order_monitor_error_sleep': 10,  # Thời gian sleep khi lỗi (10 phút)
+    
+    # Bot operation mode
+    'continuous_monitoring': True,  # True: tự động lặp kiểm tra + trading, False: chỉ chạy 1 lần khi user khởi động
+    # continuous_monitoring = True:  Bot tự động lặp: Kiểm tra lệnh bán -> Phân tích thị trường -> Đặt lệnh mua -> Sleep order_monitor_interval -> Lặp lại
+    # continuous_monitoring = False: Bot chỉ chạy 1 lần: Kiểm tra lệnh bán -> Phân tích thị trường -> Đặt lệnh -> Dừng (user phải khởi động lại để chạy tiếp)
     
     # Logging
     'log_trades': True,  # Ghi log các trades
     'log_file': 'trading_log.txt',
+    'auto_cleanup_logs': True,  # Tự động dọn dẹp log cũ
+    'log_retention_days': 7,  # Giữ log trong 7 ngày
+    'max_log_size_mb': 50,  # Giới hạn kích thước log file (MB)
+    
+    # System reliability
+    'auto_restart_on_error': True,  # Tự động restart khi có lỗi hệ thống
+    'max_error_retries': 3,  # Số lần thử lại tối đa
+    'error_retry_delay': 60,  # Delay giữa các lần retry (seconds)
+    'send_error_emails': True,  # Gửi email khi có lỗi hệ thống
     
     # Safety checks
     'max_daily_loss': 0.05,  # Tối đa 5% loss mỗi ngày
@@ -83,12 +99,12 @@ NOTIFICATION_CONFIG = {
     'telegram_enabled': False,  # Bật thông báo Telegram
     'telegram_token': 'YOUR_TELEGRAM_BOT_TOKEN',
     'telegram_chat_id': 'YOUR_TELEGRAM_CHAT_ID',
-    'email_enabled': True,  # TẮT email - Không cần thiết cho testnet
-    'email_smtp': 'smtp.gmail.com',
-    'email_port': 587,
-    'email_user': 'tradebotonlyone@gmail.com',
-    'email_password': 'lexbgslzxcuamevn',  # Không cần thiết khi tắt email
-    'email_to': 'onlyone231287@gmail.com',  # Không cần thiết khi tắt email
+    'email_enabled': True,  # BẬT email notifications
+    'email_smtp_server': 'smtp.gmail.com',  # Sửa tên key
+    'email_smtp_port': 587,  # Thêm tên key đúng
+    'email_sender': 'tradebotonlyone@gmail.com',  # Sửa tên key
+    'email_password': 'lexbgslzxcuamevn',
+    'email_recipient': 'onlyone231287@gmail.com',  # Sửa tên key
 }
 
 # =============================================================================

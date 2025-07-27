@@ -97,7 +97,7 @@ def get_account_info():
         return None
 
 def test_email_notification():
-    """Test gửi email notification"""
+    """Test gửi email notification - CHỈ để kiểm tra cấu hình"""
     try:
         config = trading_config.NOTIFICATION_CONFIG
         
@@ -105,52 +105,32 @@ def test_email_notification():
             print("📧 Email notification đang TẮT")
             return False
         
-        print("📧 KIỂM TRA EMAIL NOTIFICATION...")
-        print(f"   • SMTP Server: {config['email_smtp']}:{config['email_port']}")
-        print(f"   • Email gửi: {config['email_user']}")
-        print(f"   • Email nhận: {config['email_to']}")
+        print("📧 KIỂM TRA CẤU HÌNH EMAIL...")
+        print(f"   • SMTP Server: {config['email_smtp_server']}:{config['email_smtp_port']}")
+        print(f"   • Email gửi: {config['email_sender']}")
+        print(f"   • Email nhận: {config['email_recipient']}")
         
-        # Tạo email test
-        msg = MIMEMultipart()
-        msg['From'] = config['email_user']
-        msg['To'] = config['email_to']
-        msg['Subject'] = "🧪 Test Auto Trading Notification"
-        
-        body = """
-🚀 KIỂM TRA HỆ THỐNG NOTIFICATION
-
-Đây là email test từ hệ thống Auto Trading.
-
-📊 Thông tin:
-• Thời gian: {}
-• Trạng thái: Testing
-• Platform: Binance Testnet
-
-✅ Nếu bạn nhận được email này, hệ thống notification đã hoạt động!
-
---
-Auto Trading System
-        """.format("2025-07-27 18:51")
-        
-        msg.attach(MIMEText(body, 'plain', 'utf-8'))
-        
-        # Gửi email
-        print("📤 Đang gửi email test...")
-        server = smtplib.SMTP(config['email_smtp'], config['email_port'])
-        server.starttls()
-        server.login(config['email_user'], config['email_password'])
-        
-        text = msg.as_string()
-        server.sendmail(config['email_user'], config['email_to'], text)
-        server.quit()
-        
-        print("✅ Email test đã gửi thành công!")
-        print(f"📬 Kiểm tra hộp thư: {config['email_to']}")
-        
-        return True
+        # CHỈ test connection, KHÔNG gửi email
+        try:
+            server = smtplib.SMTP(config['email_smtp_server'], config['email_smtp_port'])
+            server.starttls()
+            server.login(config['email_sender'], config['email_password'])
+            server.quit()
+            
+            print("✅ Kết nối email thành công!")
+            print("📧 Email sẽ được gửi khi có sự kiện trading thực tế:")
+            print("   • Mua thành công")
+            print("   • Đặt lệnh bán thành công") 
+            print("   • Bán thành công")
+            
+            return True
+            
+        except Exception as conn_error:
+            print(f"❌ Lỗi kết nối email: {conn_error}")
+            return False
         
     except Exception as e:
-        print(f"❌ Lỗi gửi email: {e}")
+        print(f"❌ Lỗi kiểm tra email: {e}")
         
         # Hướng dẫn sửa lỗi
         print("\n💡 HƯỚNG DẪN SỬA LỖI:")
@@ -175,8 +155,8 @@ def send_trading_notification(message, urgent=False):
         
         # Tạo email
         msg = MIMEMultipart()
-        msg['From'] = config['email_user']
-        msg['To'] = config['email_to']
+        msg['From'] = config['email_sender']
+        msg['To'] = config['email_recipient']
         
         if urgent:
             msg['Subject'] = "🚨 URGENT - Auto Trading Alert"
@@ -198,12 +178,12 @@ Auto Trading System
         msg.attach(MIMEText(body, 'plain', 'utf-8'))
         
         # Gửi email
-        server = smtplib.SMTP(config['email_smtp'], config['email_port'])
+        server = smtplib.SMTP(config['email_smtp_server'], config['email_smtp_port'])
         server.starttls()
-        server.login(config['email_user'], config['email_password'])
+        server.login(config['email_sender'], config['email_password'])
         
         text = msg.as_string()
-        server.sendmail(config['email_user'], config['email_to'], text)
+        server.sendmail(config['email_sender'], config['email_recipient'], text)
         server.quit()
         
         print(f"📧 Đã gửi email: {message[:50]}...")
@@ -211,6 +191,187 @@ Auto Trading System
     except Exception as e:
         print(f"⚠️ Lỗi gửi notification: {e}")
         print(f"📱 Fallback: {message}")
+
+def send_buy_success_notification(order_details):
+    """Gửi email thông báo mua thành công"""
+    try:
+        config = trading_config.NOTIFICATION_CONFIG
+        
+        if not config['enabled'] or not config['email_enabled']:
+            print(f"📱 Buy Success: {order_details['symbol']} - {order_details['quantity']:,.6f} @ ${order_details['price']:,.4f}")
+            return
+        
+        # Tạo email
+        msg = MIMEMultipart()
+        msg['From'] = config['email_sender']
+        msg['To'] = config['email_recipient']
+        msg['Subject'] = f"✅ MUA THÀNH CÔNG - {order_details['symbol']}"
+        
+        body = f"""
+✅ LỆNH MUA THÀNH CÔNG
+
+📊 Chi tiết lệnh:
+• Symbol: {order_details['symbol']}
+• Số lượng: {order_details['quantity']:,.6f}
+• Giá mua: ${order_details['price']:,.4f}
+• Tổng tiền: ${order_details['total']:,.2f}
+• Order ID: {order_details.get('order_id', 'N/A')}
+
+💰 Thông tin tài khoản:
+• Số dư trước: ${order_details.get('balance_before', 'N/A') if isinstance(order_details.get('balance_before'), str) else f"{order_details.get('balance_before', 0):,.2f}"}
+• Số dư sau: ${order_details.get('balance_after', 'N/A') if isinstance(order_details.get('balance_after'), str) else f"{order_details.get('balance_after', 0):,.2f}"}
+
+🎯 Lệnh bán tự động:
+• Stop Loss: ${order_details.get('stop_loss', 'N/A') if isinstance(order_details.get('stop_loss'), str) else f"{order_details.get('stop_loss', 0):,.4f}"}
+• Take Profit 1: ${order_details.get('tp1', 'N/A') if isinstance(order_details.get('tp1'), str) else f"{order_details.get('tp1', 0):,.4f}"}
+• Take Profit 2: ${order_details.get('tp2', 'N/A') if isinstance(order_details.get('tp2'), str) else f"{order_details.get('tp2', 0):,.4f}"}
+
+📊 Platform: Binance Testnet
+⏰ Thời gian: {order_details.get('timestamp', '2025-07-28')}
+
+--
+Auto Trading System
+        """
+        
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Gửi email
+        server = smtplib.SMTP(config['email_smtp_server'], config['email_smtp_port'])
+        server.starttls()
+        server.login(config['email_sender'], config['email_password'])
+        
+        text = msg.as_string()
+        server.sendmail(config['email_sender'], config['email_recipient'], text)
+        server.quit()
+        
+        print(f"📧 Đã gửi email mua thành công: {order_details['symbol']}")
+        
+    except Exception as e:
+        print(f"⚠️ Lỗi gửi email mua thành công: {e}")
+
+def send_sell_order_placed_notification(order_details):
+    """Gửi email thông báo đặt lệnh bán thành công"""
+    try:
+        config = trading_config.NOTIFICATION_CONFIG
+        
+        if not config['enabled'] or not config['email_enabled']:
+            print(f"📱 Sell Orders Placed: {order_details['symbol']} - SL: ${order_details['stop_loss']:,.4f}")
+            return
+        
+        # Tạo email
+        msg = MIMEMultipart()
+        msg['From'] = config['email_sender']
+        msg['To'] = config['email_recipient']
+        msg['Subject'] = f"🎯 ĐẶT LỆNH BÁN - {order_details['symbol']}"
+        
+        body = f"""
+🎯 LỆNH BÁN ĐÃ ĐẶT THÀNH CÔNG
+
+📊 Chi tiết:
+• Symbol: {order_details['symbol']}
+• Số lượng gốc: {order_details['original_quantity']:,.6f}
+• Giá mua gốc: ${order_details['buy_price']:,.4f}
+
+🛡️ Stop Loss:
+• Order ID: {order_details.get('sl_order_id', 'N/A')}
+• Giá: ${order_details['stop_loss']:,.4f}
+• Số lượng: {order_details['original_quantity']:,.6f}
+
+🎯 Take Profit Orders:
+• TP1 ID: {order_details.get('tp1_order_id', 'N/A')}
+• TP1 Giá: ${order_details.get('tp1_price', 0):,.4f}
+• TP1 Số lượng: {order_details.get('tp1_quantity', 0):,.6f}
+
+• TP2 ID: {order_details.get('tp2_order_id', 'N/A')}
+• TP2 Giá: ${order_details.get('tp2_price', 0):,.4f}
+• TP2 Số lượng: {order_details.get('tp2_quantity', 0):,.6f}
+
+💡 Các lệnh này sẽ được bot theo dõi tự động.
+
+📊 Platform: Binance Testnet
+⏰ Thời gian: {order_details.get('timestamp', '2025-07-28')}
+
+--
+Auto Trading System
+        """
+        
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Gửi email
+        server = smtplib.SMTP(config['email_smtp_server'], config['email_smtp_port'])
+        server.starttls()
+        server.login(config['email_sender'], config['email_password'])
+        
+        text = msg.as_string()
+        server.sendmail(config['email_sender'], config['email_recipient'], text)
+        server.quit()
+        
+        print(f"📧 Đã gửi email đặt lệnh bán: {order_details['symbol']}")
+        
+    except Exception as e:
+        print(f"⚠️ Lỗi gửi email đặt lệnh bán: {e}")
+
+def send_sell_success_notification(order_details):
+    """Gửi email thông báo bán thành công"""
+    try:
+        config = trading_config.NOTIFICATION_CONFIG
+        
+        if not config['enabled'] or not config['email_enabled']:
+            print(f"📱 Sell Success: {order_details['symbol']} - Profit: ${order_details.get('profit_loss', 0):,.2f} ({order_details.get('profit_percent', 0):+.2f}%)")
+            return
+        
+        # Tạo email
+        msg = MIMEMultipart()
+        msg['From'] = config['email_sender']
+        msg['To'] = config['email_recipient']
+        msg['Subject'] = f"💰 BÁN THÀNH CÔNG - {order_details['symbol']}"
+        
+        profit_emoji = "📈" if order_details.get('profit_amount', 0) > 0 else "📉"
+        
+        body = f"""
+💰 LỆNH BÁN THÀNH CÔNG
+
+📊 Chi tiết lệnh:
+• Symbol: {order_details['symbol']}
+• Loại lệnh: {order_details.get('order_type', 'N/A')}
+• Số lượng bán: {order_details['quantity']:,.6f}
+• Giá bán: ${order_details['filled_price']:,.4f}
+• Tổng tiền nhận: ${order_details.get('total_received', order_details['quantity'] * order_details['filled_price']):,.2f}
+• Order ID: {order_details.get('order_id', 'N/A')}
+
+💹 Kết quả giao dịch:
+• Giá mua gốc: ${order_details.get('buy_price', 0):,.4f}
+• Giá bán: ${order_details['filled_price']:,.4f}
+• {profit_emoji} Lợi nhuận: ${order_details.get('profit_loss', 0):,.2f}
+• 📊 % Thay đổi: {order_details.get('profit_percent', 0):+.2f}%
+
+💰 Tài khoản:
+• Số dư sau bán: ${order_details.get('balance_after', 'N/A') if isinstance(order_details.get('balance_after'), str) else f"{order_details.get('balance_after', 0):,.2f}"}
+
+🔄 Bot sẽ tự động tìm cơ hội đầu tư tiếp theo...
+
+📊 Platform: Binance Testnet
+⏰ Thời gian: {order_details.get('timestamp', '2025-07-28')}
+
+--
+Auto Trading System
+        """
+        
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Gửi email
+        server = smtplib.SMTP(config['email_smtp_server'], config['email_smtp_port'])
+        server.starttls()
+        server.login(config['email_sender'], config['email_password'])
+        
+        text = msg.as_string()
+        server.sendmail(config['email_sender'], config['email_recipient'], text)
+        server.quit()
+        
+        print(f"📧 Đã gửi email bán thành công: {order_details['symbol']}")
+        
+    except Exception as e:
+        print(f"⚠️ Lỗi gửi email bán thành công: {e}")
 
 if __name__ == "__main__":
     print("🧪 TEST ACCOUNT INFO & NOTIFICATIONS")
