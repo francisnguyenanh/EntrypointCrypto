@@ -32,7 +32,7 @@ def get_jpy_pairs():
     return jpy_pairs
 
 # Hàm lấy dữ liệu giá từ Binance
-def get_crypto_data(symbol, timeframe='1m', limit=1000):
+def get_crypto_data(symbol, timeframe='1m', limit=5000):
     try:
         ohlcv = binance.fetch_ohlcv(symbol, timeframe, limit=limit)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -199,7 +199,8 @@ def determine_entry_timing(df, order_book_analysis, support_levels, resistance_l
     
     # Xác định entry price chính xác
     entry_price = None
-    if signal_score >= 3:  # Ít nhất 3/5 tín hiệu tích cực
+    min_signals_required = 2 if signal_score >= 2 else 1  # Giảm yêu cầu tín hiệu
+    if signal_score >= min_signals_required:  # Chỉ cần 1-2 tín hiệu thay vì 3
         if order_book_analysis:
             # Entry price = best ask + một chút để đảm bảo fill
             entry_price = order_book_analysis['best_ask'] * 1.001
@@ -210,11 +211,11 @@ def determine_entry_timing(df, order_book_analysis, support_levels, resistance_l
         'signals': entry_signals,
         'signal_score': signal_score,
         'entry_price': entry_price,
-        'recommended': signal_score >= 3
+        'recommended': signal_score >= min_signals_required  # Thay đổi từ >= 3
     }
 
 # Hàm chuẩn bị dữ liệu cho LSTM
-def prepare_lstm_data(df, look_back=60):
+def prepare_lstm_data(df, look_back=20):  # Giảm từ 60 xuống 20
     if df is None or len(df) < look_back:
         return None, None, None, None, None
     
@@ -252,18 +253,18 @@ def prepare_lstm_data(df, look_back=60):
 # Hàm xây dựng và huấn luyện mô hình LSTM
 def build_lstm_model(X_train, y_train):
     model = Sequential()
-    model.add(LSTM(units=50, return_sequences=True, input_shape=(X_train.shape[1], 1)))
+    model.add(LSTM(units=20, return_sequences=True, input_shape=(X_train.shape[1], 1)))  # Giảm từ 50 xuống 20
     model.add(Dropout(0.2))
-    model.add(LSTM(units=50))
+    model.add(LSTM(units=20))  # Giảm từ 50 xuống 20
     model.add(Dropout(0.2))
     model.add(Dense(units=1))
     
     model.compile(optimizer='adam', loss='mean_squared_error')
-    model.fit(X_train, y_train, epochs=10, batch_size=32, verbose=0)
+    model.fit(X_train, y_train, epochs=5, batch_size=16, verbose=0)  # Giảm epochs và batch size
     return model
 
 # Hàm dự đoán giá bằng LSTM
-def predict_price_lstm(df, look_back=60):
+def predict_price_lstm(df, look_back=20):  # Giảm từ 60 xuống 20
     if df is None or len(df) < look_back:
         return None
     
@@ -283,7 +284,7 @@ def predict_price_lstm(df, look_back=60):
         
         # Kiểm tra giá dự đoán có hợp lý không
         current_price = df['close'].iloc[-1]
-        if predicted_price <= 0 or predicted_price > current_price * config.MAX_PRICE_PREDICTION_RATIO:  # Tránh dự đoán quá vô lý
+        if predicted_price <= 0 or predicted_price > current_price * 3:  # Giảm từ 10 xuống 3
             return None
             
         return predicted_price
@@ -293,20 +294,14 @@ def predict_price_lstm(df, look_back=60):
 
 # Hàm tính toán các chỉ số kỹ thuật và tín hiệu giao dịch
 def analyze_trends(df, timeframe='1h', rsi_buy=65, rsi_sell=35, volatility_threshold=5, signal_mode='strict'):
-    if len(df) < 200:
+    if len(df) < 50:  # Giảm từ 200 xuống 50
         return None
-    if timeframe == '15m':
-        df = df.resample('15T').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
-    elif timeframe == '30m':
-        df = df.resample('30T').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
-    elif timeframe == '1h':
-        df = df.resample('1H').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
-    elif timeframe == '4h':
-        df = df.resample('4H').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
     
-    # Tính các chỉ số kỹ thuật
-    df['SMA_50'] = SMAIndicator(df['close'], window=50).sma_indicator()
-    df['SMA_200'] = SMAIndicator(df['close'], window=200).sma_indicator()
+    # Không cần resample nữa vì đã lấy dữ liệu đúng timeframe
+    
+    # Tính các chỉ số kỹ thuật với period nhỏ hơn
+    df['SMA_20'] = SMAIndicator(df['close'], window=20).sma_indicator()  # Giảm từ 50 xuống 20
+    df['SMA_50'] = SMAIndicator(df['close'], window=50).sma_indicator()  # Giảm từ 200 xuống 50
     df['RSI'] = RSIIndicator(df['close'], window=14).rsi()
     macd = MACD(df['close'])
     df['MACD'] = macd.macd()
@@ -326,14 +321,14 @@ def analyze_trends(df, timeframe='1h', rsi_buy=65, rsi_sell=35, volatility_thres
     if signal_mode == 'strict':
         # Chế độ khắt khe - tất cả điều kiện phải đúng
         df.loc[
-            (df['SMA_50'] > df['SMA_200']) & 
+            (df['SMA_20'] > df['SMA_50']) &  # Thay đổi từ SMA_50 > SMA_200
             (df['RSI'] < rsi_buy) & 
             (df['MACD'] > df['MACD_signal']) & 
             (df['close'] < df['BB_high']) & 
             (df['Stoch'] < 80) & 
             (df['Volatility'] < volatility_threshold), 'Signal'] = 1  # Mua
         df.loc[
-            (df['SMA_50'] < df['SMA_200']) & 
+            (df['SMA_20'] < df['SMA_50']) &  # Thay đổi từ SMA_50 < SMA_200
             (df['RSI'] > rsi_sell) & 
             (df['MACD'] < df['MACD_signal']) & 
             (df['close'] > df['BB_low']) & 
@@ -343,7 +338,7 @@ def analyze_trends(df, timeframe='1h', rsi_buy=65, rsi_sell=35, volatility_thres
     elif signal_mode == 'flexible':
         # Chế độ linh hoạt - ít nhất 3/6 điều kiện đúng
         buy_conditions = (
-            (df['SMA_50'] > df['SMA_200']).astype(int) +
+            (df['SMA_20'] > df['SMA_50']).astype(int) +  # Thay đổi từ SMA_50 > SMA_200
             (df['RSI'] < rsi_buy).astype(int) +
             (df['MACD'] > df['MACD_signal']).astype(int) +
             (df['close'] < df['BB_high']).astype(int) +
@@ -353,7 +348,7 @@ def analyze_trends(df, timeframe='1h', rsi_buy=65, rsi_sell=35, volatility_thres
         df.loc[buy_conditions >= 3, 'Signal'] = 1  # Mua nếu ít nhất 3 điều kiện đúng
         
         sell_conditions = (
-            (df['SMA_50'] < df['SMA_200']).astype(int) +
+            (df['SMA_20'] < df['SMA_50']).astype(int) +  # Thay đổi từ SMA_50 < SMA_200
             (df['RSI'] > rsi_sell).astype(int) +
             (df['MACD'] < df['MACD_signal']).astype(int) +
             (df['close'] > df['BB_low']).astype(int) +
@@ -365,6 +360,10 @@ def analyze_trends(df, timeframe='1h', rsi_buy=65, rsi_sell=35, volatility_thres
     elif signal_mode == 'lstm_only':
         # Chế độ chỉ dựa vào LSTM - tạo tín hiệu mua cho tất cả
         df['Signal'] = 1  # Sẽ dựa vào LSTM để lọc
+    
+    elif signal_mode == 'emergency':
+        # Chế độ khẩn cấp - tạo tín hiệu mua cho tất cả để đảm bảo có kết quả
+        df['Signal'] = 1
     
     return df
 
@@ -427,7 +426,7 @@ def vectorbt_optimize(df, rsi_buy_range=[60, 65, 70], rsi_sell_range=[30, 35, 40
     for rsi_buy, rsi_sell, vol_threshold, take_profit in product(rsi_buy_range, rsi_sell_range, vol_range, tp_range):
         try:
             df_ = analyze_trends(df.copy(), timeframe='1h', rsi_buy=rsi_buy, rsi_sell=rsi_sell, volatility_threshold=vol_threshold)
-            if df_ is None or len(df_) < 50:  # Cần đủ dữ liệu để backtest
+            if df_ is None or len(df_) < 20:  # Giảm từ 50 xuống 20
                 continue
             
             # Phí giao dịch Binance: 0.1% mỗi chiều (mua và bán)
@@ -491,8 +490,9 @@ def find_best_coins(timeframe='1h', min_win_rate=None, min_profit_potential=None
         for i, symbol in enumerate(jpy_pairs):
             try:
                 print(f"Đang phân tích {symbol} ({i+1}/{len(jpy_pairs)})...")
-                df = get_crypto_data(symbol, timeframe='1m', limit=1000)
-                if df is None or len(df) < 200:
+                # Lấy dữ liệu trực tiếp từ timeframe thay vì resample từ 1m
+                df = get_crypto_data(symbol, timeframe=timeframe, limit=1000)
+                if df is None or len(df) < 50:  # Giảm từ 200 xuống 50
                     continue
                 
                 analyzed_df = analyze_trends(df, timeframe, signal_mode=signal_mode)
@@ -533,8 +533,9 @@ def find_best_coins(timeframe='1h', min_win_rate=None, min_profit_potential=None
                         # Tính giá vào lệnh và bán tối ưu
                         optimal_prices = calculate_optimal_entry_exit(current_price, order_book_analysis, support_levels, resistance_levels, best_params)
                         
-                        # Kiểm tra risk/reward ratio (giảm yêu cầu xuống)
-                        if optimal_prices['risk_reward_ratio'] < 1.5:  # Risk/Reward phải >= 1.5:1
+                        # Kiểm tra risk/reward ratio (giảm yêu cầu xuống thấp hơn)
+                        min_risk_reward = 1.2 if signal_mode in ['emergency', 'lstm_only'] else 1.5
+                        if optimal_prices['risk_reward_ratio'] < min_risk_reward:
                             continue
                         
                         results.append({
@@ -557,8 +558,8 @@ def find_best_coins(timeframe='1h', min_win_rate=None, min_profit_potential=None
                             'vbt_profit': vbt_profit,
                             'rsi': latest_data['RSI'],
                             'macd': latest_data['MACD'],
+                            'sma_20': latest_data['SMA_20'],
                             'sma_50': latest_data['SMA_50'],
-                            'sma_200': latest_data['SMA_200'],
                             'bb_high': latest_data['BB_high'],
                             'bb_low': latest_data['BB_low'],
                             'stoch': latest_data['Stoch'],
@@ -676,8 +677,8 @@ def print_results():
                 print(f"📊 Chỉ số kỹ thuật:")
                 print(f"   • RSI: {coin_data.get('rsi', 0):.2f}")
                 print(f"   • MACD: {coin_data.get('macd', 0):.2f}")
+                print(f"   • SMA 20: ¥{coin_data.get('sma_20', 0):.2f}")
                 print(f"   • SMA 50: ¥{coin_data.get('sma_50', 0):.2f}")
-                print(f"   • SMA 200: ¥{coin_data.get('sma_200', 0):.2f}")
                 print(f"   • BB High: ¥{coin_data.get('bb_high', 0):.2f}")
                 print(f"   • BB Low: ¥{coin_data.get('bb_low', 0):.2f}")
                 print(f"   • Stochastic: {coin_data.get('stoch', 0):.2f}")

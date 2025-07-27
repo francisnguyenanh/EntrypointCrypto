@@ -7,15 +7,15 @@ TRADING_FEE = 0.001  # Phí giao dịch Binance (0.1%)
 STOP_LOSS_PERCENTAGE = 0.3  # Stop loss (%)
 
 # Cấu hình LSTM
-LOOK_BACK_PERIOD = 60  # Số ngày nhìn lại cho LSTM
-LSTM_EPOCHS = 10  # Số epochs training
-LSTM_BATCH_SIZE = 32  # Batch size
+LOOK_BACK_PERIOD = 20  # Số ngày nhìn lại cho LSTM (giảm từ 60 xuống 20)
+LSTM_EPOCHS = 5  # Số epochs training (giảm từ 10 xuống 5)
+LSTM_BATCH_SIZE = 16  # Batch size (giảm từ 32 xuống 16)
 TRAIN_TEST_SPLIT = 0.8  # Tỷ lệ train/test
 
 # Cấu hình API
 API_DELAY = 1  # Delay giữa các API calls (giây)
-DATA_LIMIT = 1000  # Số lượng candles lấy từ API
-MIN_DATA_LENGTH = 200  # Số lượng dữ liệu tối thiểu
+DATA_LIMIT = 5000  # Số lượng candles lấy từ API (tăng để có đủ dữ liệu sau resample)
+MIN_DATA_LENGTH = 50  # Số lượng dữ liệu tối thiểu (giảm từ 200 xuống 50)
 
 # Cấu hình validation
 MAX_PRICE_PREDICTION_RATIO = 10  # Giá dự đoán không được vượt quá N lần giá hiện tại
@@ -68,8 +68,8 @@ ADJUSTMENT_STEPS = [
     {'MIN_WIN_RATE': 20, 'MIN_PROFIT_POTENTIAL': 0.1, 'SIGNAL_MODE': 'flexible'},
     # Bước 5: Chế độ linh hoạt với win rate 10%
     {'MIN_WIN_RATE': 10, 'MIN_PROFIT_POTENTIAL': 0.05, 'SIGNAL_MODE': 'flexible'},
-    # Bước 6: Chế độ rất linh hoạt - chỉ cần dự đoán LSTM tích cực và win rate > 5%
-    {'MIN_WIN_RATE': 5, 'MIN_PROFIT_POTENTIAL': 0.01, 'SIGNAL_MODE': 'lstm_only'},
-    # Bước 7: Cuối cùng - chỉ cần có tín hiệu và LSTM dương
-    {'MIN_WIN_RATE': 0, 'MIN_PROFIT_POTENTIAL': 0.01, 'SIGNAL_MODE': 'lstm_only'}
+    # Bước 6: Chế độ rất linh hoạt - chỉ cần dự đoán LSTM tích cực và win rate > 0%
+    {'MIN_WIN_RATE': 0, 'MIN_PROFIT_POTENTIAL': 0.01, 'SIGNAL_MODE': 'lstm_only'},
+    # Bước 7: Cuối cùng - chỉ cần có giá và LSTM không null
+    {'MIN_WIN_RATE': 0, 'MIN_PROFIT_POTENTIAL': 0.001, 'SIGNAL_MODE': 'emergency'}
 ]
