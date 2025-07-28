@@ -56,6 +56,9 @@ echo "🏗️ Building Lambda package..."
 
 # Create deployment package
 rm -rf .aws-sam/
+
+# Use requirements.txt for deployment (without boto3)
+# boto3 is already available in AWS Lambda runtime
 sam build --use-container
 
 echo "📦 Deploying to AWS..."

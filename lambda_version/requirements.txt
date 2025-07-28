@@ -9,9 +9,13 @@ numpy==1.24.4
 # Technical analysis
 ta==0.10.2
 
-# AWS SDK
-boto3==1.34.34
-botocore==1.34.34
+# AWS SDK - Note: boto3 is already available in AWS Lambda runtime
+# Only specify if you need a specific version
+# boto3==1.34.34
+# botocore==1.34.34
+
+# For local development, uncomment above lines or install separately:
+# pip install boto3
 
 # JSON and data handling
 simplejson==3.19.2
