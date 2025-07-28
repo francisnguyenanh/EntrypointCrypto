@@ -1945,20 +1945,32 @@ def main():
     try:
         print("🚀 Khởi động Trading Bot...")
         
-        # Validate all required functions exist
+        # Validate all required functions exist - simple approach
         required_functions = ['print_results', 'startup_bot_with_error_handling', 'check_and_process_sell_orders']
         missing = []
         
+        # Get current module's globals
+        module_globals = globals()
+        
         for func_name in required_functions:
-            try:
-                func = globals().get(func_name)
-                if not func or not callable(func):
-                    missing.append(func_name)
-            except Exception:
+            if func_name not in module_globals:
                 missing.append(func_name)
+            elif not callable(module_globals[func_name]):
+                missing.append(f"{func_name} (not callable)")
         
         if missing:
             print(f"🚨 Lỗi: Thiếu functions: {missing}")
+            print("📝 Debug info:")
+            # Debug: show what functions are available
+            available_funcs = [name for name, obj in module_globals.items() 
+                             if callable(obj) and not name.startswith('_')]
+            print(f"📋 Total callable functions: {len(available_funcs)}")
+            for func in required_functions:
+                if func in module_globals:
+                    is_callable = callable(module_globals[func])
+                    print(f"  {'✅' if is_callable else '❌'} {func}: {'Found and callable' if is_callable else 'Found but not callable'}")
+                else:
+                    print(f"  ❌ {func}: Not found in globals")
             return
         
         print("✅ All functions validated")
