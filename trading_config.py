@@ -49,27 +49,28 @@ TRADING_CONFIG = {
     'price_check_interval': 5,  # Interval kiểm tra giá (seconds)
     
     # Trading and monitoring intervals (seconds)
-    'analysis_interval': 300,  # Chu kỳ phân tích thị trường (5 phút)
-    'order_monitor_interval': 5,  # Chu kỳ kiểm tra trạng thái lệnh (5 phút)
-    'order_monitor_error_sleep': 10,  # Thời gian sleep khi lỗi (10 phút)
+    'monitor_interval': 30,  # Chu kỳ kiểm tra lệnh và phân tích thị trường (30 giây)
+    'error_sleep_interval': 60,  # Thời gian sleep khi lỗi (1 phút)
     
     # Bot operation mode
     'continuous_monitoring': True,  # True: tự động lặp kiểm tra + trading, False: chỉ chạy 1 lần khi user khởi động
     # continuous_monitoring = True:  Bot tự động lặp: Kiểm tra lệnh bán -> Phân tích thị trường -> Đặt lệnh mua -> Sleep order_monitor_interval -> Lặp lại
     # continuous_monitoring = False: Bot chỉ chạy 1 lần: Kiểm tra lệnh bán -> Phân tích thị trường -> Đặt lệnh -> Dừng (user phải khởi động lại để chạy tiếp)
     
-    # Logging
+    # Logging và cleanup
     'log_trades': True,  # Ghi log các trades
     'log_file': 'trading_log.txt',
     'auto_cleanup_logs': True,  # Tự động dọn dẹp log cũ
-    'log_retention_days': 7,  # Giữ log trong 7 ngày
-    'max_log_size_mb': 50,  # Giới hạn kích thước log file (MB)
+    'log_retention_days': 7,  # Xóa log cũ hơn 7 ngày
+    'max_log_size_mb': 50,  # Backup log khi vượt quá 50MB
+    'cleanup_check_interval': 86400,  # Kiểm tra cleanup mỗi 24 giờ
     
-    # System reliability
+    # System reliability và error handling
     'auto_restart_on_error': True,  # Tự động restart khi có lỗi hệ thống
     'max_error_retries': 3,  # Số lần thử lại tối đa
     'error_retry_delay': 60,  # Delay giữa các lần retry (seconds)
     'send_error_emails': True,  # Gửi email khi có lỗi hệ thống
+    'error_email_cooldown': 300,  # Cooldown giữa các email lỗi (5 phút) để tránh spam
     
     # Safety checks
     'max_daily_loss': 0.05,  # Tối đa 5% loss mỗi ngày
