@@ -21,6 +21,7 @@ BINANCE_CONFIG = {
         'recvWindow': 60000,
     }
 }
+#Testnet
 # BINANCE_CONFIG = {
 #     'apiKey': 'ENQmmQnIRMtL4B1sFS9RBuYkOltJZ7MiLfkQRoD1RXn1Omz3PfTRu84I5XDqgYjQ',  # Thay bằng API key testnet
 #     'secret': 'ZIlxj2u2do1Ksl9aMvPyWgQT3BF8WgaJfQEYSrWoOnhNmddyCpBm9ftQ3DvIx4RB',   # Thay bằng secret testnet
