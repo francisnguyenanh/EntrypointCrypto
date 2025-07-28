@@ -138,3 +138,35 @@ Giá: ¥477.62
 Thành công: 1/2
 Đầu tư: $2653.20
 Số dư: $524046.18
+[2025-07-28 10:07:31] ❌ Trading XRP/JPY thất bại: Không đủ số dư. Cần ¥358013.07, có ¥2958.77
+[2025-07-28 10:07:35] ❌ Trading XLM/JPY thất bại: Không đủ số dư. Cần ¥358013.07, có ¥2958.77
+[2025-07-28 10:08:55] 🚀 TRADING #1 THÀNH CÔNG
+Coin: XRP/JPY
+Đầu tư: ¥357655.42
+Số lượng: 743.597274
+Giá: ¥3.25
+[2025-07-28 10:08:59] 🚀 TRADING #2 THÀNH CÔNG
+Coin: XLM/JPY
+Đầu tư: ¥357655.42
+Số lượng: 5433.841031
+Giá: ¥0.45
+[2025-07-28 10:09:02] 📊 TỔNG KẾT TRADING
+Thành công: 2/2
+Đầu tư: $715310.83
+Số dư: $528468.11
+[2025-07-28 10:14:05] 📊 Test message từ app.py send_notification
+[2025-07-28 10:14:09] 🚨 Urgent test từ app.py send_notification
+[2025-07-28 10:14:53] 🚀 TRADING #1 THÀNH CÔNG
+Coin: XRP/JPY
+Đầu tư: ¥357655.42
+Số lượng: 744.541534
+Giá: ¥3.25
+[2025-07-28 10:15:00] 🚀 TRADING #2 THÀNH CÔNG
+Coin: XLM/JPY
+Đầu tư: ¥357655.42
+Số lượng: 5456.222985
+Giá: ¥0.44
+[2025-07-28 10:15:07] 📊 TỔNG KẾT TRADING
+Thành công: 2/2
+Đầu tư: $715310.83
+Số dư: $524602.38

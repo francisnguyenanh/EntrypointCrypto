@@ -134,8 +134,6 @@ def send_system_error_notification(error_msg, error_type="SYSTEM_ERROR"):
         # Cập nhật thời gian gửi email cuối
         LAST_ERROR_EMAIL_TIME = current_time
         
-        subject = f"🚨 TRADING BOT ERROR - {error_type}"
-        
         detailed_message = f"""
 🚨 CẢNH BÁO LỖI HỆ THỐNG TRADING BOT
 
@@ -163,11 +161,19 @@ def send_system_error_notification(error_msg, error_type="SYSTEM_ERROR"):
 ⚠️ Nếu lỗi lặp lại, vui lòng kiểm tra hệ thống manual.
         """
         
-        send_trading_notification(detailed_message)
-        print(f"📧 Đã gửi email thông báo lỗi hệ thống: {error_type}")
+        # Gửi email với subject cụ thể
+        try:
+            # Sử dụng hàm email với urgent=True để hiển thị 🚨 URGENT
+            send_trading_notification(f"🚨 {error_type}: {error_msg[:100]}...", urgent=True)
+            print(f"📧 Đã gửi email thông báo lỗi hệ thống: {error_type}")
+        except Exception as email_error:
+            print(f"⚠️ Lỗi gửi email thông báo hệ thống: {email_error}")
+            # Fallback: ít nhất in message
+            print(detailed_message)
         
     except Exception as e:
-        print(f"⚠️ Lỗi gửi email thông báo hệ thống: {e}")
+        print(f"⚠️ Lỗi trong send_system_error_notification: {e}")
+        print(f"📱 Fallback error message: {error_type} - {error_msg}")
 
 # Hàm xử lý lỗi hệ thống với auto-recovery
 def handle_system_error(error, function_name, max_retries=None):
@@ -317,29 +323,26 @@ def get_current_jpy_price(symbol):
 
 # Hàm gửi thông báo
 def send_notification(message, urgent=False):
-    """Gửi thông báo về trading"""
+    """Gửi thông báo về trading với email đầy đủ"""
     try:
-        if not trading_config.NOTIFICATION_CONFIG['enabled']:
-            return
-        
         print(f"📱 {message}")
         
-        # Telegram notification
-        if trading_config.NOTIFICATION_CONFIG['telegram_enabled']:
-            # Implement telegram notification here
-            pass
+        # Gửi email thông qua hàm đã có trong account_info
+        try:
+            send_trading_notification(message, urgent)
+        except Exception as email_error:
+            print(f"⚠️ Lỗi gửi email: {email_error}")
         
-        # Email notification
-        if trading_config.NOTIFICATION_CONFIG['email_enabled']:
-            # Implement email notification here
-            pass
-            
         # Log to file
         if TRADING_CONFIG['log_trades']:
             log_file = TRADING_CONFIG.get('log_file', 'trading_log.txt')
-            with open(log_file, 'a', encoding='utf-8') as f:
-                timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-                f.write(f"[{timestamp}] {message}\n")
+            try:
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+                    f.write(f"[{timestamp}] {message}\n")
+            except Exception as log_error:
+                print(f"⚠️ Lỗi ghi log: {log_error}")
+                
     except Exception as e:
         print(f"⚠️ Lỗi gửi thông báo: {e}")
 
@@ -1084,19 +1087,22 @@ def execute_auto_trading(recommendations):
             # Kiểm tra xem có đủ số dư cho cả 2 không
             balance = binance.fetch_balance()
             jpy_balance = balance['free'].get('JPY', 0)
-            if jpy_balance == 0:
-                usdt_balance = balance['free'].get('USDT', 0)
-                jpy_balance = usdt_balance * 150  # 1 USD ≈ 150 JPY
+            usdt_balance = balance['free'].get('USDT', 0)
+            
+            # Tính tổng số dư có thể sử dụng (ưu tiên USDT với giới hạn max_order_value)
+            effective_usdt = min(usdt_balance, TRADING_CONFIG.get('max_order_value', float('inf')))
+            total_available_jpy = jpy_balance + (effective_usdt * 150)  # Convert USDT to JPY equivalent
             
             total_min_needed = sum(coin['min_investment'] for coin in valid_recommendations)
             
-            if jpy_balance >= total_min_needed:
+            print(f"💰 Tổng số dư khả dụng: ¥{total_available_jpy:,.2f} (JPY: ¥{jpy_balance:,.2f} + USDT: ${effective_usdt:,.2f})")
+            print(f"💰 Cần tối thiểu cho 2 coins: ¥{total_min_needed:,.2f}")
+            
+            if total_available_jpy >= total_min_needed:
                 print("🎯 Chiến lược: CHIA ĐÔI tài khoản cho 2 coins")
                 allocation_per_coin = 0.475  # 47.5% cho mỗi coin
             else:
                 print("⚠️ Không đủ số dư cho 2 coins - Ưu tiên ALL-IN coin tốt nhất")
-                print(f"💰 Số dư hiện tại: ¥{jpy_balance:,.2f}")
-                print(f"💰 Cần tối thiểu: ¥{total_min_needed:,.2f}")
                 
                 # Chọn coin có confidence score cao nhất hoặc risk/reward tốt nhất
                 best_coin = max(valid_recommendations, key=lambda x: evaluate_coin_priority(x))
@@ -1166,18 +1172,20 @@ def execute_auto_trading(recommendations):
                 # Lấy số dư hiện tại (real-time)
                 balance = binance.fetch_balance()
                 jpy_balance = balance['free'].get('JPY', 0)
+                usdt_balance = balance['free'].get('USDT', 0)
                 
-                # Nếu không có JPY, convert từ USDT
-                if jpy_balance == 0:
-                    usdt_balance = balance['free'].get('USDT', 0)
-                    jpy_balance = usdt_balance * 150  # 1 USD ≈ 150 JPY
+                # Tính tổng số dư khả dụng (ưu tiên USDT với giới hạn)
+                effective_usdt = min(usdt_balance, TRADING_CONFIG.get('max_order_value', float('inf')))
+                total_available_jpy = jpy_balance + (effective_usdt * 150)  # Convert USDT to JPY equivalent
                 
-                # Tính toán số tiền đầu tư với số dư hiện tại
-                investment_amount = jpy_balance * allocation_per_coin
+                # Tính toán số tiền đầu tư với số dư tổng hợp
+                investment_amount = total_available_jpy * allocation_per_coin
                 
                 # Kiểm tra giới hạn với logging chi tiết
                 min_order_jpy = TRADING_CONFIG['min_order_value'] * 150  # Convert USDT to JPY
-                print(f"💰 Số dư hiện tại: ¥{jpy_balance:,.2f}")
+                print(f"💰 Số dư JPY: ¥{jpy_balance:,.2f}")
+                print(f"💰 Số dư USDT khả dụng: ${effective_usdt:,.2f}")
+                print(f"💰 Tổng khả dụng (JPY equivalent): ¥{total_available_jpy:,.2f}")
                 print(f"🎯 Phân bổ: {allocation_per_coin*100:.1f}% = ¥{investment_amount:,.2f}")
                 print(f"📏 Tối thiểu cần: ¥{min_order_jpy:,.2f}")
                 
@@ -1216,11 +1224,40 @@ def execute_auto_trading(recommendations):
                 print(f"💱 Giá entry: ¥{entry_jpy:,.2f}")
                 print(f"💱 Giá thị trường hiện tại: ¥{current_jpy_price:,.2f}")
                 
-                # Đặt lệnh với hàm đã sửa
-                result = place_buy_order_with_sl_tp_fixed(
-                    original_symbol, quantity, entry_jpy, 
-                    stop_loss_jpy, tp1_jpy, tp2_jpy
-                )
+                # Kiểm tra khả năng trading với JPY hoặc USDT
+                if jpy_balance >= investment_amount:
+                    # Đủ JPY - trade trực tiếp
+                    print("💰 Sử dụng JPY để trading...")
+                    result = place_buy_order_with_sl_tp_fixed(
+                        original_symbol, quantity, entry_jpy, 
+                        stop_loss_jpy, tp1_jpy, tp2_jpy
+                    )
+                elif effective_usdt >= (investment_amount / 150):
+                    # Không đủ JPY nhưng đủ USDT - convert sang USDT trading
+                    usdt_symbol = original_symbol.replace('/JPY', '/USDT')
+                    print(f"💰 Không đủ JPY, chuyển sang trading USDT: {usdt_symbol}")
+                    
+                    # Convert các giá sang USDT (1 USD ≈ 150 JPY)
+                    entry_usdt = entry_jpy / 150
+                    stop_loss_usdt = stop_loss_jpy / 150
+                    tp1_usdt = tp1_jpy / 150
+                    tp2_usdt = tp2_jpy / 150
+                    usdt_investment = investment_amount / 150
+                    usdt_quantity = usdt_investment / entry_usdt
+                    
+                    print(f"💰 Investment USDT: ${usdt_investment:,.2f}")
+                    print(f"📊 Quantity USDT: {usdt_quantity:.6f}")
+                    print(f"💱 Entry USDT: ${entry_usdt:,.4f}")
+                    
+                    result = place_buy_order_with_sl_tp_fixed(
+                        usdt_symbol, usdt_quantity, entry_usdt, 
+                        stop_loss_usdt, tp1_usdt, tp2_usdt
+                    )
+                else:
+                    result = {
+                        'status': 'error',
+                        'error': f'Không đủ số dư. Cần JPY: ¥{investment_amount:,.2f} hoặc USDT: ${investment_amount/150:,.2f}'
+                    }
                 
                 if result['status'] == 'success':
                     successful_trades += 1
@@ -2701,7 +2738,6 @@ def find_coins_with_auto_adjust(timeframe='1h'):
     return results
 
 # Hàm in kết quả ra command line - CHỈ KẾT QUẢ CUỐI
-@system_error_handler("print_results", critical=True)
 def print_results():
     """Hàm chính phân tích thị trường và thực hiện trading"""
     global BOT_RUNNING
@@ -2710,148 +2746,146 @@ def print_results():
         print("🛑 Bot đã dừng - Dừng phân tích")
         return
         
-    # Tập hợp tất cả kết quả từ các timeframe (SILENT MODE)
-    all_technical_coins = []
-    all_orderbook_opportunities = []
-    
-    for tf in config.TIMEFRAMES:
-        try:
-            # 1. Ưu tiên tìm coin bằng phân tích kỹ thuật (SILENT)
-            technical_coins = find_coins_with_auto_adjust_silent(tf)
-            
-            if technical_coins:
-                # Thêm timeframe info vào coin data
-                for coin in technical_coins:
-                    coin['timeframe'] = tf
-                    coin['analysis_method'] = 'TECHNICAL'
-                all_technical_coins.extend(technical_coins)
-            else:
-                # 2. Chỉ tìm sổ lệnh khi không có coin kỹ thuật (SILENT)
-                orderbook_opportunities = find_orderbook_opportunities_silent(tf, min_confidence=25)
+    try:
+        # Tập hợp tất cả kết quả từ các timeframe (SILENT MODE)
+        all_technical_coins = []
+        all_orderbook_opportunities = []
+        
+        for tf in config.TIMEFRAMES:
+            try:
+                # 1. Ưu tiên tìm coin bằng phân tích kỹ thuật (SILENT)
+                technical_coins = find_coins_with_auto_adjust_silent(tf)
                 
-                if orderbook_opportunities:
-                    # Thêm timeframe info
-                    for opp in orderbook_opportunities:
-                        opp['timeframe'] = tf
-                        opp['analysis_method'] = 'ORDERBOOK'
-                    all_orderbook_opportunities.extend(orderbook_opportunities)
+                if technical_coins:
+                    # Thêm timeframe info vào coin data
+                    for coin in technical_coins:
+                        coin['timeframe'] = tf
+                        coin['analysis_method'] = 'TECHNICAL'
+                    all_technical_coins.extend(technical_coins)
+                else:
+                    # 2. Chỉ tìm sổ lệnh khi không có coin kỹ thuật (SILENT)
+                    orderbook_opportunities = find_orderbook_opportunities_silent(tf, min_confidence=25)
                     
-        except Exception as e:
-            continue
-    
-    
-    # Hiển thị kết quả theo độ ưu tiên
-    displayed_coins = 0
-    
-    # A. Ưu tiên hiển thị coin kỹ thuật (top 2)
-    # Code đã được comment để tránh lỗi syntax
-    # Sẽ được sửa trong lần cập nhật tiếp theo
-    
-    print("\n" + "=" * 80)
-    print("� KẾT QUẢ KHUYẾN NGHỊ ĐẦU TƯ")
-    print("=" * 80)
-    
-    # 3. Hiển thị kết quả theo độ ưu tiên
-    displayed_coins = 0
-    
-    # A. Ưu tiên hiển thị coin kỹ thuật (top 2)
-    if all_technical_coins:
-        # Sắp xếp theo win_rate và risk_reward_ratio
-        sorted_technical = sorted(all_technical_coins, 
-                                key=lambda x: (x['win_rate'], x['risk_reward_ratio']), 
-                                reverse=True)[:2]  # Top 2
+                    if orderbook_opportunities:
+                        # Thêm timeframe info
+                        for opp in orderbook_opportunities:
+                            opp['timeframe'] = tf
+                            opp['analysis_method'] = 'ORDERBOOK'
+                        all_orderbook_opportunities.extend(orderbook_opportunities)
+                        
+            except Exception as e:
+                continue
         
-        print(f"\n🎯 PHÂN TÍCH KỸ THUẬT - {len(sorted_technical)} coin(s) khuyến nghị:")
+        print("\n" + "=" * 80)
+        print("💡 KẾT QUẢ KHUYẾN NGHỊ ĐẦU TƯ")
+        print("=" * 80)
         
-        for coin_data in sorted_technical:
-            displayed_coins += 1
-            print(f"\n💰 #{displayed_coins}. {coin_data['coin']}/JPY (Timeframe: {coin_data['timeframe']})")
-            print(f"📊 Giá hiện tại: ¥{coin_data['current_price']:.2f}")
-            print(f"🎯 Giá vào lệnh: ¥{coin_data.get('optimal_entry', 0):.2f}")
-            print(f"🛡️ Stop Loss: ¥{coin_data.get('stop_loss', 0):.2f} (-{coin_data.get('risk_percent', 0):.2f}%)")
-            print(f"🎯 Take Profit:")
-            print(f"   • TP1: ¥{coin_data.get('tp1_price', 0):.2f} (+{((coin_data.get('tp1_price', 0)/coin_data.get('optimal_entry', 1)-1)*100):.2f}%)")
-            print(f"   • TP2: ¥{coin_data.get('tp2_price', 0):.2f} (+{((coin_data.get('tp2_price', 0)/coin_data.get('optimal_entry', 1)-1)*100):.2f}%)")
-            print(f"⚖️ Risk/Reward: 1:{coin_data.get('risk_reward_ratio', 0):.2f}")
-            print(f"🔮 Giá dự đoán: ¥{coin_data.get('predicted_price', 0):.2f}")
-            print(f"📈 Tiềm năng lợi nhuận: {coin_data.get('profit_potential', 0):.2f}%")
-            print(f"🏆 Win Rate: {coin_data['win_rate']:.1f}%")
-            print(f"🚀 Tín hiệu: MUA ({coin_data.get('signal_mode', 'unknown')})")
-            print(f"📊 RSI: {coin_data.get('rsi', 0):.1f} | MACD: {coin_data.get('macd', 0):.2f}")
-            print("-" * 80)
-    
-    # B. Nếu không có coin kỹ thuật hoặc chưa đủ 2, hiển thị orderbook (top 2)
-    if displayed_coins < 2 and all_orderbook_opportunities:
-        remaining_slots = 2 - displayed_coins
-        sorted_orderbook = sorted(all_orderbook_opportunities, 
-                                key=lambda x: (x['confidence_score'], x['risk_reward_ratio']), 
-                                reverse=True)[:remaining_slots]
+        # 3. Hiển thị kết quả theo độ ưu tiên
+        displayed_coins = 0
         
-        if sorted_orderbook:
-            print(f"\n🔍 PHÂN TÍCH SỔ LỆNH - {len(sorted_orderbook)} cơ hội khuyến nghị:")
+        # A. Ưu tiên hiển thị coin kỹ thuật (top 2)
+        if all_technical_coins:
+            # Sắp xếp theo win_rate và risk_reward_ratio
+            sorted_technical = sorted(all_technical_coins, 
+                                    key=lambda x: (x['win_rate'], x['risk_reward_ratio']), 
+                                    reverse=True)[:2]  # Top 2
             
-            for opp in sorted_orderbook:
+            print(f"\n🎯 PHÂN TÍCH KỸ THUẬT - {len(sorted_technical)} coin(s) khuyến nghị:")
+            
+            for coin_data in sorted_technical:
                 displayed_coins += 1
-                print(f"\n💰 #{displayed_coins}. {opp['coin']}/JPY (Timeframe: {opp['timeframe']})")
-                print(f"📊 Giá hiện tại: ¥{opp['current_price']:.2f}")
-                print(f"🎯 Giá vào lệnh: ¥{opp['entry_price']:.2f}")
-                print(f"🛡️ Stop Loss: ¥{opp['stop_loss']:.2f} (-{opp['risk_percent']:.2f}%)")
+                print(f"\n💰 #{displayed_coins}. {coin_data['coin']}/JPY (Timeframe: {coin_data['timeframe']})")
+                print(f"📊 Giá hiện tại: ¥{coin_data['current_price']:.2f}")
+                print(f"🎯 Giá vào lệnh: ¥{coin_data.get('optimal_entry', 0):.2f}")
+                print(f"🛡️ Stop Loss: ¥{coin_data.get('stop_loss', 0):.2f} (-{coin_data.get('risk_percent', 0):.2f}%)")
                 print(f"🎯 Take Profit:")
-                print(f"   • TP1: ¥{opp['tp1_price']:.2f} (+{((opp['tp1_price']/opp['entry_price']-1)*100):.2f}%)")
-                print(f"   • TP2: ¥{opp['tp2_price']:.2f} (+{((opp['tp2_price']/opp['entry_price']-1)*100):.2f}%)")
-                print(f"⚖️ Risk/Reward: 1:{opp['risk_reward_ratio']:.2f}")
-                print(f"� Tín hiệu: {opp['trend_signal']}")
-                print(f"📝 Lý do: {opp['reason']}")
-                print(f"🎯 Độ tin cậy: {opp['confidence_score']}/100")
-                print(f"📊 Bid/Ask Ratio: {opp['bid_ask_ratio']:.2f} | Spread: {opp['spread']:.3f}%")
-                if 'rsi' in opp:
-                    print(f"📊 RSI: {opp['rsi']:.1f}")
-                print("⚠️ Lưu ý: Phân tích sổ lệnh, rủi ro cao hơn!")
+                print(f"   • TP1: ¥{coin_data.get('tp1_price', 0):.2f} (+{((coin_data.get('tp1_price', 0)/coin_data.get('optimal_entry', 1)-1)*100):.2f}%)")
+                print(f"   • TP2: ¥{coin_data.get('tp2_price', 0):.2f} (+{((coin_data.get('tp2_price', 0)/coin_data.get('optimal_entry', 1)-1)*100):.2f}%)")
+                print(f"⚖️ Risk/Reward: 1:{coin_data.get('risk_reward_ratio', 0):.2f}")
+                print(f"🔮 Giá dự đoán: ¥{coin_data.get('predicted_price', 0):.2f}")
+                print(f"📈 Tiềm năng lợi nhuận: {coin_data.get('profit_potential', 0):.2f}%")
+                print(f"🏆 Win Rate: {coin_data['win_rate']:.1f}%")
+                print(f"🚀 Tín hiệu: MUA ({coin_data.get('signal_mode', 'unknown')})")
+                print(f"📊 RSI: {coin_data.get('rsi', 0):.1f} | MACD: {coin_data.get('macd', 0):.2f}")
                 print("-" * 80)
-    
-    # C. Tổng kết
-    if displayed_coins == 0:
-        print("\n❌ Không tìm thấy cơ hội đầu tư nào trong tất cả timeframes.")
-        print("� Đề xuất: Chờ thị trường có tín hiệu rõ ràng hơn.")
-    else:
-        print(f"\n✅ Tổng cộng: {displayed_coins} cơ hội đầu tư được khuyến nghị")
-        if displayed_coins < len(all_technical_coins) + len(all_orderbook_opportunities):
-            print(f"📝 Đã lọc từ {len(all_technical_coins) + len(all_orderbook_opportunities)} cơ hội tìm thấy")
         
-        print("\n🎯 CHIẾN LƯỢC KHUYẾN NGHỊ:")
-        print("• Ưu tiên coin phân tích kỹ thuật (độ tin cậy cao hơn)")
-        print("• Đặt Stop Loss chặt chẽ theo khuyến nghị")
-        print("• Chia nhỏ vốn cho multiple TP levels")
-        print("• Theo dõi thị trường liên tục")
+        # B. Nếu không có coin kỹ thuật hoặc chưa đủ 2, hiển thị orderbook (top 2)
+        if displayed_coins < 2 and all_orderbook_opportunities:
+            remaining_slots = 2 - displayed_coins
+            sorted_orderbook = sorted(all_orderbook_opportunities, 
+                                    key=lambda x: (x['confidence_score'], x['risk_reward_ratio']), 
+                                    reverse=True)[:remaining_slots]
+            
+            if sorted_orderbook:
+                print(f"\n🔍 PHÂN TÍCH SỔ LỆNH - {len(sorted_orderbook)} cơ hội khuyến nghị:")
+                
+                for opp in sorted_orderbook:
+                    displayed_coins += 1
+                    print(f"\n💰 #{displayed_coins}. {opp['coin']}/JPY (Timeframe: {opp['timeframe']})")
+                    print(f"📊 Giá hiện tại: ¥{opp['current_price']:.2f}")
+                    print(f"🎯 Giá vào lệnh: ¥{opp['entry_price']:.2f}")
+                    print(f"🛡️ Stop Loss: ¥{opp['stop_loss']:.2f} (-{opp['risk_percent']:.2f}%)")
+                    print(f"🎯 Take Profit:")
+                    print(f"   • TP1: ¥{opp['tp1_price']:.2f} (+{((opp['tp1_price']/opp['entry_price']-1)*100):.2f}%)")
+                    print(f"   • TP2: ¥{opp['tp2_price']:.2f} (+{((opp['tp2_price']/opp['entry_price']-1)*100):.2f}%)")
+                    print(f"⚖️ Risk/Reward: 1:{opp['risk_reward_ratio']:.2f}")
+                    print(f"💡 Tín hiệu: {opp['trend_signal']}")
+                    print(f"📝 Lý do: {opp['reason']}")
+                    print(f"🎯 Độ tin cậy: {opp['confidence_score']}/100")
+                    print(f"📊 Bid/Ask Ratio: {opp['bid_ask_ratio']:.2f} | Spread: {opp['spread']:.3f}%")
+                    if 'rsi' in opp:
+                        print(f"📊 RSI: {opp['rsi']:.1f}")
+                    print("⚠️ Lưu ý: Phân tích sổ lệnh, rủi ro cao hơn!")
+                    print("-" * 80)
         
-        # Thực hiện auto trading nếu được bật
-        if TRADING_CONFIG['enabled']:
-            print(f"\n🤖 AUTO TRADING: SẴN SÀNG VÀO LỆNH {displayed_coins} COIN(S)")
-            
-            # Chuẩn bị danh sách khuyến nghị cho trading
-            trading_recommendations = []
-            
-            # Ưu tiên technical coins
-            if all_technical_coins:
-                sorted_technical = sorted(all_technical_coins, 
-                                        key=lambda x: (x['win_rate'], x['risk_reward_ratio']), 
-                                        reverse=True)[:2]
-                trading_recommendations.extend(sorted_technical)
-            
-            # Thêm orderbook nếu chưa đủ 2
-            if len(trading_recommendations) < 2 and all_orderbook_opportunities:
-                remaining_slots = 2 - len(trading_recommendations)
-                sorted_orderbook = sorted(all_orderbook_opportunities, 
-                                        key=lambda x: (x['confidence_score'], x['risk_reward_ratio']), 
-                                        reverse=True)[:remaining_slots]
-                trading_recommendations.extend(sorted_orderbook)
-            
-            # Thực hiện trading
-            execute_auto_trading(trading_recommendations)
+        # C. Tổng kết
+        if displayed_coins == 0:
+            print("\n❌ Không tìm thấy cơ hội đầu tư nào trong tất cả timeframes.")
+            print("💡 Đề xuất: Chờ thị trường có tín hiệu rõ ràng hơn.")
         else:
-            print("\n🤖 AUTO TRADING: TẮT (chỉ hiển thị khuyến nghị)")
-    
-    print("=" * 80)
+            print(f"\n✅ Tổng cộng: {displayed_coins} cơ hội đầu tư được khuyến nghị")
+            if displayed_coins < len(all_technical_coins) + len(all_orderbook_opportunities):
+                print(f"📝 Đã lọc từ {len(all_technical_coins) + len(all_orderbook_opportunities)} cơ hội tìm thấy")
+            
+            print("\n🎯 CHIẾN LƯỢC KHUYẾN NGHỊ:")
+            print("• Ưu tiên coin phân tích kỹ thuật (độ tin cậy cao hơn)")
+            print("• Đặt Stop Loss chặt chẽ theo khuyến nghị")
+            print("• Chia nhỏ vốn cho multiple TP levels")
+            print("• Theo dõi thị trường liên tục")
+            
+            # Thực hiện auto trading nếu được bật
+            if TRADING_CONFIG['enabled']:
+                print(f"\n🤖 AUTO TRADING: SẴN SÀNG VÀO LỆNH {displayed_coins} COIN(S)")
+                
+                # Chuẩn bị danh sách khuyến nghị cho trading
+                trading_recommendations = []
+                
+                # Ưu tiên technical coins
+                if all_technical_coins:
+                    sorted_technical = sorted(all_technical_coins, 
+                                            key=lambda x: (x['win_rate'], x['risk_reward_ratio']), 
+                                            reverse=True)[:2]
+                    trading_recommendations.extend(sorted_technical)
+                
+                # Thêm orderbook nếu chưa đủ 2
+                if len(trading_recommendations) < 2 and all_orderbook_opportunities:
+                    remaining_slots = 2 - len(trading_recommendations)
+                    sorted_orderbook = sorted(all_orderbook_opportunities, 
+                                            key=lambda x: (x['confidence_score'], x['risk_reward_ratio']), 
+                                            reverse=True)[:remaining_slots]
+                    trading_recommendations.extend(sorted_orderbook)
+                
+                # Thực hiện trading
+                execute_auto_trading(trading_recommendations)
+            else:
+                print("\n🤖 AUTO TRADING: TẮT (chỉ hiển thị khuyến nghị)")
+        
+        print("=" * 80)
+        
+    except Exception as e:
+        error_msg = f"❌ Lỗi trong print_results: {e}"
+        print(error_msg)
+        send_system_error_notification(error_msg, "PRINT_RESULTS_ERROR")
 
 # Khởi tạo order monitoring khi import module
 def initialize_order_monitoring():
