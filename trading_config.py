@@ -11,9 +11,9 @@
 # 4. Thay thế các giá trị dưới đây
 
 BINANCE_CONFIG = {
-    'apiKey': 'ENQmmQnIRMtL4B1sFS9RBuYkOltJZ7MiLfkQRoD1RXn1Omz3PfTRu84I5XDqgYjQ',  # Thay bằng API key testnet
-    'secret': 'ZIlxj2u2do1Ksl9aMvPyWgQT3BF8WgaJfQEYSrWoOnhNmddyCpBm9ftQ3DvIx4RB',   # Thay bằng secret testnet
-    'sandbox': True,  # PHẢI LÀ True cho testnet
+    'apiKey': 'Jsk0G44imJ2iuOukTdWgh2AcsDinHmvsZQ4TaQtT5f1DS2euFqpdaShYfAfZSnRa',  # Thay bằng API key testnet
+    'secret': 'aVPzEXAwpqiMTY7EZa2BeCTSGnh8aSJcrRkJns0PhUr2KZRNDXvG5QDWSTAQ7q3a',   # Thay bằng secret testnet
+    'sandbox': False,  # PHẢI LÀ True cho testnet
     'enableRateLimit': True,
     'timeout': 30000,
     'options': {
@@ -21,6 +21,17 @@ BINANCE_CONFIG = {
         'recvWindow': 60000,
     }
 }
+# BINANCE_CONFIG = {
+#     'apiKey': 'ENQmmQnIRMtL4B1sFS9RBuYkOltJZ7MiLfkQRoD1RXn1Omz3PfTRu84I5XDqgYjQ',  # Thay bằng API key testnet
+#     'secret': 'ZIlxj2u2do1Ksl9aMvPyWgQT3BF8WgaJfQEYSrWoOnhNmddyCpBm9ftQ3DvIx4RB',   # Thay bằng secret testnet
+#     'sandbox': True,  # PHẢI LÀ True cho testnet
+#     'enableRateLimit': True,
+#     'timeout': 30000,
+#     'options': {
+#         'defaultType': 'spot',  # spot trading
+#         'recvWindow': 60000,
+#     }
+# }
 
 # =============================================================================
 # TRADING CONFIGURATION
@@ -32,8 +43,8 @@ TRADING_CONFIG = {
     # Quản lý rủi ro
     'max_trades': 2,  # Tối đa 2 trades cùng lúc
     'risk_per_trade': 0.5,  # 50% tài khoản cho mỗi trade khi có 2 coins
-    'min_order_value': 10,  # Giá trị order tối thiểu (USDT)
-    'max_order_value': 5000,  # Giá trị order tối đa (USDT) - Tăng lên cho testnet có nhiều tiền
+    'min_order_value': 1500,  # Giá trị order tối thiểu (JPY) - tương đương 10 USD
+    'max_order_value': 750000,  # Giá trị order tối đa (JPY) - tương đương 5000 USD
     
     # Slippage và fees
     'slippage': 0.001,  # 0.1% slippage cho market orders
@@ -49,8 +60,8 @@ TRADING_CONFIG = {
     'price_check_interval': 5,  # Interval kiểm tra giá (seconds)
     
     # Trading and monitoring intervals (seconds)
-    'monitor_interval': 60,  # Chu kỳ kiểm tra lệnh và phân tích thị trường (30 giây)
-    'error_sleep_interval': 120,  # Thời gian sleep khi lỗi (1 phút)
+    'monitor_interval': 900,  # Chu kỳ kiểm tra lệnh và phân tích thị trường (30 giây)
+    'error_sleep_interval': 1800,  # Thời gian sleep khi lỗi (1 phút)
     
     # Bot operation mode
     'continuous_monitoring': True,  # True: tự động lặp kiểm tra + trading, False: chỉ chạy 1 lần khi user khởi động
@@ -75,6 +86,10 @@ TRADING_CONFIG = {
     # Safety checks
     'max_daily_loss': 0.05,  # Tối đa 5% loss mỗi ngày
     'emergency_stop': False,  # Emergency stop trading
+    
+    # JPY specific settings
+    'base_currency': 'JPY',  # Sử dụng JPY làm base currency
+    'jpy_to_usd_rate': 150,  # Tỷ giá JPY/USD để tham khảo (1 USD = 150 JPY)
 }
 
 # =============================================================================

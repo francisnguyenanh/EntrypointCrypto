@@ -369,11 +369,11 @@ def trigger_new_trading_cycle():
         
         # Kiểm tra số dư hiện tại
         current_balance = get_account_balance()
-        print(f"💰 Số dư hiện tại: ${current_balance:,.2f}")
+        print(f"💰 Số dư hiện tại: ¥{current_balance:,.2f}")
         
-        # Chỉ tiếp tục nếu đủ số dư tối thiểu
-        if current_balance >= TRADING_CONFIG['min_order_value']:
-            print("✅ Đủ số dư để tiếp tục trading - Bắt đầu phân tích...")
+        # Chỉ cần có số dư là có thể trading
+        if current_balance > 0:
+            print("✅ Có số dư - Bắt đầu phân tích...")
             
             # Cập nhật thời gian retrade cuối cùng
             LAST_RETRADE_TIME = current_time
@@ -382,7 +382,7 @@ def trigger_new_trading_cycle():
             print_results()
             
         else:
-            print(f"⚠️ Số dư không đủ để trading (${current_balance:,.2f} < ${TRADING_CONFIG['min_order_value']:,.2f})")
+            print("⚠️ Không có số dư để trading")
             print("💡 Chờ thêm lệnh bán khớp hoặc nạp thêm tiền")
             
     except Exception as e:
@@ -482,13 +482,13 @@ def monitor_active_orders():
                             profit = (sell_price - buy_price) * current_status['filled']
                             profit_percent = ((sell_price - buy_price) / buy_price) * 100
                             
-                            filled_info['profit_loss'] = f"${profit:,.2f}"
+                            filled_info['profit_loss'] = f"¥{profit:,.2f}"
                             filled_info['profit_percentage'] = f"{profit_percent:+.2f}%"
                         
                         # Đánh dấu để xóa khỏi danh sách theo dõi
                         orders_to_remove.append(order_id)
                         
-                        print(f"✅ Lệnh {order_id} đã khớp: {current_status['symbol']} - {current_status['filled']:.6f} @ ${current_status['average']:.4f}")
+                        print(f"✅ Lệnh {order_id} đã khớp: {current_status['symbol']} - {current_status['filled']:.6f} @ ¥{current_status['average']:.4f}")
                     
                     elif current_status['status'] in ['canceled', 'expired', 'rejected']:
                         # Lệnh đã bị hủy/từ chối
@@ -590,24 +590,63 @@ def stop_order_monitor():
     MONITOR_RUNNING = False
     print("🛑 Đã dừng order monitoring thread")
 
+# Hàm kiểm tra số dư có đủ để đặt lệnh không
+def validate_balance_for_order(symbol, quantity, price):
+    """Kiểm tra số dư có đủ để đặt lệnh không"""
+    try:
+        # Lấy số dư hiện tại
+        current_balance = get_account_balance()
+        
+        # Tính toán giá trị lệnh
+        order_value = quantity * price
+        
+        # Thêm buffer 1% cho fee và slippage
+        required_balance = order_value * 1.01
+        
+        if current_balance >= required_balance:
+            return {
+                'valid': True, 
+                'current_balance': current_balance,
+                'required': required_balance,
+                'order_value': order_value
+            }
+        else:
+            return {
+                'valid': False,
+                'current_balance': current_balance,
+                'required': required_balance,
+                'order_value': order_value,
+                'shortage': required_balance - current_balance
+            }
+    except Exception as e:
+        print(f"⚠️ Lỗi kiểm tra số dư: {e}")
+        return {'valid': False, 'error': str(e)}
+
 # Hàm lấy số dư tài khoản
 def get_account_balance():
-    """Lấy số dư tài khoản USDT"""
+    """Lấy số dư tài khoản JPY"""
     try:
         balance = binance.fetch_balance()
-        usdt_balance = balance['USDT']['free'] if 'USDT' in balance else 0
-        return usdt_balance
+        jpy_balance = balance['JPY']['free'] if 'JPY' in balance else 0
+        return jpy_balance
     except Exception as e:
         print(f"Lỗi khi lấy số dư: {e}")
         return 0
 
 # Hàm tính toán kích thước order
-def calculate_order_size(usdt_balance, num_recommendations, coin_price):
-    """All-in toàn bộ số dư cho mỗi lệnh, không giới hạn, không chia nhỏ."""
-    if usdt_balance <= 0:
-        print(f"⚠️ Số dư không đủ để đặt lệnh. Hiện có ${usdt_balance:,.2f}")
+def calculate_order_size(jpy_balance, num_recommendations, coin_price):
+    """All-in toàn bộ số dư JPY cho mỗi lệnh."""
+    if jpy_balance <= 0:
+        print(f"⚠️ Số dư JPY không đủ để đặt lệnh. Hiện có ¥{jpy_balance:,.2f}")
         return 0
-    quantity = usdt_balance / coin_price
+    
+    # Chia đều số dư cho số recommendations hoặc all-in nếu chỉ có 1
+    if num_recommendations <= 1:
+        quantity = jpy_balance / coin_price
+    else:
+        balance_per_coin = jpy_balance / num_recommendations
+        quantity = balance_per_coin / coin_price
+    
     return quantity
 
 # Hàm tính toán số lượng tối đa dựa trên thanh khoản sổ lệnh
@@ -822,20 +861,92 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                 return {'status': 'failed', 'error': f'Quantity too small after liquidity adjustment. Min: {min_amount}, Adjusted: {final_quantity:.6f}'}
             
             if final_quantity * current_price < min_cost:
-                return {'status': 'failed', 'error': f'Order value too small after liquidity adjustment. Min: ${min_cost}'}
+                return {'status': 'failed', 'error': f'Order value too small after liquidity adjustment. Min: ¥{min_cost}'}
                 
         except Exception as market_error:
             print(f"⚠️ Không thể kiểm tra market info: {market_error}")
         
-        # 1. Đặt lệnh mua market
-        buy_order = binance.create_market_buy_order(trading_symbol, final_quantity)
-        print(f"✅ Lệnh mua thành công - ID: {buy_order['id']}")
+        # Kiểm tra số dư trước khi đặt lệnh
+        balance_check = validate_balance_for_order(trading_symbol, final_quantity, current_price)
         
-        # Lấy giá thực tế đã mua
-        actual_price = float(buy_order['average']) if buy_order['average'] else current_price
-        actual_quantity = float(buy_order['filled'])
+        if not balance_check['valid']:
+            if 'shortage' in balance_check:
+                error_msg = (
+                    f"❌ INSUFFICIENT BALANCE for {trading_symbol}\n"
+                    f"💰 Current: ¥{balance_check['current_balance']:,.2f}\n"
+                    f"🎯 Required: ¥{balance_check['required']:,.2f}\n"
+                    f"📊 Short: ¥{balance_check['shortage']:,.2f}"
+                )
+                print(error_msg)
+                send_notification(error_msg, urgent=True)
+                return {
+                    'status': 'failed', 
+                    'error': 'insufficient_balance_pre_check',
+                    'details': error_msg
+                }
+            else:
+                return {
+                    'status': 'failed', 
+                    'error': 'balance_check_error',
+                    'details': balance_check.get('error', 'Unknown error')
+                }
         
-        print(f"📈 Giá mua thực tế: ${actual_price:,.4f}")
+        print(f"✅ Balance validation passed: ¥{balance_check['current_balance']:,.2f} available")
+        
+        # 1. Đặt lệnh mua market với xử lý lỗi số dư
+        try:
+            buy_order = binance.create_market_buy_order(trading_symbol, final_quantity)
+            print(f"✅ Lệnh mua thành công - ID: {buy_order['id']}")
+            
+            # Lấy giá thực tế đã mua
+            actual_price = float(buy_order['average']) if buy_order['average'] else current_price
+            actual_quantity = float(buy_order['filled'])
+            
+        except Exception as buy_error:
+            error_str = str(buy_error).lower()
+            
+            # Xử lý cụ thể cho lỗi số dư không đủ
+            if any(keyword in error_str for keyword in ['insufficient', 'balance', 'not enough', 'no balance']):
+                current_balance = get_account_balance()
+                error_msg = f"❌ SỐ DƯ KHÔNG ĐỦ cho {trading_symbol}"
+                detailed_msg = (
+                    f"💰 Số dư hiện tại: ¥{current_balance:,.2f}\n"
+                    f"🎯 Cần: ¥{final_quantity * current_price:,.2f}\n"
+                    f"📊 Thiếu: ¥{(final_quantity * current_price) - current_balance:,.2f}"
+                )
+                print(f"{error_msg}\n{detailed_msg}")
+                send_notification(f"{error_msg}\n{detailed_msg}", urgent=True)
+                return {'status': 'failed', 'error': 'insufficient_balance', 'details': detailed_msg}
+            
+            # Xử lý các lỗi khác từ Binance
+            elif 'order would immediately match' in error_str:
+                error_msg = f"❌ MARKET ORDER BỊ TỪ CHỐI: {trading_symbol} - Lệnh sẽ khớp ngay lập tức"
+                print(error_msg)
+                send_notification(error_msg, urgent=True)
+                return {'status': 'failed', 'error': 'immediate_match', 'details': str(buy_error)}
+            
+            elif 'min notional' in error_str or 'min_notional' in error_str:
+                error_msg = f"❌ GIÁ TRỊ LỆNH QUÁ NHỎ: {trading_symbol}"
+                detailed_msg = f"Lệnh ¥{final_quantity * current_price:,.2f} nhỏ hơn minimum required"
+                print(f"{error_msg}\n{detailed_msg}")
+                send_notification(f"{error_msg}\n{detailed_msg}", urgent=True)
+                return {'status': 'failed', 'error': 'min_notional', 'details': detailed_msg}
+            
+            elif 'invalid symbol' in error_str:
+                error_msg = f"❌ SYMBOL KHÔNG HỢP LỆ: {trading_symbol}"
+                print(error_msg)
+                send_notification(error_msg, urgent=True)
+                return {'status': 'failed', 'error': 'invalid_symbol', 'details': str(buy_error)}
+            
+            else:
+                # Lỗi chung từ Binance
+                error_msg = f"❌ BINANCE TỪ CHỐI LỆNH: {trading_symbol}"
+                detailed_msg = f"Chi tiết: {buy_error}"
+                print(f"{error_msg}\n{detailed_msg}")
+                send_notification(f"{error_msg}\n{detailed_msg}", urgent=True)
+                return {'status': 'failed', 'error': 'binance_rejected', 'details': str(buy_error)}
+        
+        print(f"📈 Giá mua thực tế: ¥{actual_price:,.4f}")
         print(f"📊 Số lượng thực tế: {actual_quantity:.6f}")
         
         # 🔥 GỬI EMAIL MUA THÀNH CÔNG
@@ -868,7 +979,7 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
         
         # Gửi thông báo với thông tin thanh khoản
         send_notification(
-            f"✅ MUA {trading_symbol}: {actual_quantity:.6f} @ ${actual_price:.4f}\n"
+            f"✅ MUA {trading_symbol}: {actual_quantity:.6f} @ ¥{actual_price:.4f}\n"
             f"💧 Liquidity impact: {market_impact['impact']}\n"
             f"📊 Volume usage: {market_impact.get('volume_usage', 0):.1f}%"
         )
@@ -878,20 +989,20 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
         
         try:
             if TRADING_CONFIG['use_oco_orders']:
-                # Sử dụng OCO order (One-Cancels-Other)
+                # Sử dụng OCO order (One-Cancels-Other) - trade trực tiếp JPY
                 oco_order = binance.create_order(
-                    symbol=usdt_symbol,
+                    symbol=trading_symbol,
                     type='OCO',
                     side='sell',
                     amount=actual_quantity * 0.7,  # 70% cho OCO
-                    price=tp1_usdt,  # Take profit price
-                    stopPrice=stop_loss_usdt,  # Stop loss trigger price
-                    stopLimitPrice=stop_loss_usdt * (1 - TRADING_CONFIG['stop_loss_buffer']),
+                    price=tp1_price,  # Take profit price
+                    stopPrice=stop_loss,  # Stop loss trigger price
+                    stopLimitPrice=stop_loss * (1 - TRADING_CONFIG['stop_loss_buffer']),
                     params={'stopLimitTimeInForce': 'GTC'}
                 )
                 orders_placed.append(oco_order)
-                print(f"✅ OCO order đặt thành công - SL: ${stop_loss_usdt:.4f}, TP: ${tp1_usdt:.4f}")
-                send_notification(f"🛡️ OCO {usdt_symbol}: SL ${stop_loss_usdt:.4f} | TP ${tp1_usdt:.4f}")
+                print(f"✅ OCO order đặt thành công - SL: ¥{stop_loss:.4f}, TP: ¥{tp1_price:.4f}")
+                send_notification(f"🛡️ OCO {trading_symbol}: SL ¥{stop_loss:.4f} | TP ¥{tp1_price:.4f}")
                 
                 # Thêm OCO order vào danh sách theo dõi
                 add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
@@ -1044,21 +1155,16 @@ def execute_auto_trading(recommendations):
     print("\n" + "=" * 80)
     
     try:
-        # 1. Kiểm tra số dư
-        usdt_balance = get_account_balance()
-        print(f"💰 Số dư USDT: ${usdt_balance:,.2f}")
+        # 1. Kiểm tra số dư JPY
+        jpy_balance = get_account_balance()
+        print(f"💰 Số dư JPY: ¥{jpy_balance:,.2f}")
         
-        if usdt_balance < TRADING_CONFIG['min_order_value']:
-            error_msg = f"❌ Số dư không đủ để trading. Cần tối thiểu ${TRADING_CONFIG['min_order_value']}"
+        # Chỉ cần có số dư là có thể trading
+        if jpy_balance <= 0:
+            error_msg = f"❌ Không có số dư để trading"
             print(error_msg)
             send_notification(error_msg, urgent=True)
             return
-        
-        # Kiểm tra giới hạn tối đa
-        max_order_value = TRADING_CONFIG.get('max_order_value', float('inf'))
-        if usdt_balance > max_order_value:
-            usdt_balance = max_order_value
-            print(f"⚠️ Giới hạn số dư tối đa: ${max_order_value}")
         
         # 2. Hủy orders cũ
         cancel_all_open_orders()
@@ -1067,83 +1173,26 @@ def execute_auto_trading(recommendations):
         num_recommendations = len(recommendations)
         print(f"📊 Số coin khuyến nghị: {num_recommendations}")
         
-        # Kiểm tra số dư trước khi phân chia
+        # Lọc và chuẩn bị recommendations - đơn giản
         valid_recommendations = []
         for coin_data in recommendations:
             original_symbol = f"{coin_data['coin']}/JPY"
             current_jpy_price = get_current_jpy_price(original_symbol)
             if current_jpy_price:
-                # Kiểm tra số dư tối thiểu cần thiết (50% của min_order_value để có buffer)
-                min_investment = TRADING_CONFIG['min_order_value'] * 150 * 0.5  # Convert to JPY
                 coin_data['current_price'] = current_jpy_price
-                coin_data['min_investment'] = min_investment
                 valid_recommendations.append(coin_data)
         
-        # Ưu tiên logic phân bổ thông minh
-        if len(valid_recommendations) == 1:
-            print("🎯 Chiến lược: ALL-IN với 1 coin (95% tài khoản)")
-            allocation_per_coin = 0.95
-        elif len(valid_recommendations) == 2:
-            # Kiểm tra xem có đủ số dư cho cả 2 không
-            balance = binance.fetch_balance()
-            jpy_balance = balance['free'].get('JPY', 0)
-            usdt_balance = balance['free'].get('USDT', 0)
-            
-            # Tính tổng số dư có thể sử dụng (ưu tiên USDT với giới hạn max_order_value)
-            effective_usdt = min(usdt_balance, TRADING_CONFIG.get('max_order_value', float('inf')))
-            total_available_jpy = jpy_balance + (effective_usdt * 150)  # Convert USDT to JPY equivalent
-            
-            total_min_needed = sum(coin['min_investment'] for coin in valid_recommendations)
-            
-            print(f"💰 Tổng số dư khả dụng: ¥{total_available_jpy:,.2f} (JPY: ¥{jpy_balance:,.2f} + USDT: ${effective_usdt:,.2f})")
-            print(f"💰 Cần tối thiểu cho 2 coins: ¥{total_min_needed:,.2f}")
-            
-            if total_available_jpy >= total_min_needed:
-                print("🎯 Chiến lược: CHIA ĐÔI tài khoản cho 2 coins")
-                allocation_per_coin = 0.475  # 47.5% cho mỗi coin
-            else:
-                print("⚠️ Không đủ số dư cho 2 coins - Ưu tiên ALL-IN coin tốt nhất")
-                
-                # Chọn coin có confidence score cao nhất hoặc risk/reward tốt nhất
-                best_coin = max(valid_recommendations, key=lambda x: evaluate_coin_priority(x))
-                valid_recommendations = [best_coin]
-                allocation_per_coin = 0.95
-                print(f"🎯 Đã chọn coin tốt nhất: {best_coin['coin']} (Score: {evaluate_coin_priority(best_coin):.1f})")
-        else:
-            print("⚠️ Quá nhiều khuyến nghị, áp dụng logic ưu tiên")
-            # Sắp xếp theo score và chọn tối đa 2 coin tốt nhất
-            sorted_recommendations = sorted(valid_recommendations, 
-                                          key=lambda x: evaluate_coin_priority(x), 
-                                          reverse=True)
-            
-            # Hiển thị thông tin đánh giá
-            print("📊 ĐÁNH GIÁ COINS:")
-            for i, coin in enumerate(sorted_recommendations[:3]):  # Hiển thị top 3
-                score = evaluate_coin_priority(coin)
-                print(f"   {i+1}. {coin['coin']}: Score {score:.1f} "
-                      f"(Confidence: {coin.get('confidence_score', 0):.1f}, "
-                      f"R/R: {coin.get('risk_reward_ratio', 0):.2f})")
-            
-            valid_recommendations = sorted_recommendations[:2]
-            
-            # Kiểm tra lại số dư cho 2 coin đã chọn
-            balance = binance.fetch_balance()
-            jpy_balance = balance['free'].get('JPY', 0)
-            if jpy_balance == 0:
-                usdt_balance = balance['free'].get('USDT', 0)
-                jpy_balance = usdt_balance * 150
-            
-            total_min_needed = sum(coin['min_investment'] for coin in valid_recommendations)
-            
-            if jpy_balance >= total_min_needed:
-                allocation_per_coin = 0.475
-                print("🎯 Chiến lược: CHIA ĐÔI cho 2 coins tốt nhất")
-            else:
-                valid_recommendations = [valid_recommendations[0]]  # Chỉ lấy coin tốt nhất
-                allocation_per_coin = 0.95
-                print(f"🎯 Chiến lược: ALL-IN coin tốt nhất do hạn chế số dư")
-                print(f"   ➜ Đã chọn: {valid_recommendations[0]['coin']} "
-                      f"(Score: {evaluate_coin_priority(valid_recommendations[0]):.1f})")
+        # Logic phân bổ đơn giản: chia đều cho tất cả recommendations
+        num_coins = len(valid_recommendations)
+        if num_coins == 0:
+            print("❌ Không có coin nào có giá hợp lệ")
+            return
+        
+        # Chia đều số dư cho tất cả coins, dành 5% làm buffer
+        allocation_per_coin = 0.95 / num_coins
+        
+        print(f"🎯 Chiến lược: Chia đều ¥{jpy_balance:,.2f} cho {num_coins} coins")
+        print(f"📊 Mỗi coin: {allocation_per_coin*100:.1f}% = ¥{jpy_balance * allocation_per_coin:,.2f}")
         
         # Cập nhật recommendations với danh sách đã lọc
         recommendations = valid_recommendations
@@ -1169,30 +1218,15 @@ def execute_auto_trading(recommendations):
                         print(f"❌ Không thể lấy giá {jpy_symbol}")
                         continue
                 
-                # Lấy số dư hiện tại (real-time)
+                # Lấy số dư hiện tại (real-time) - chỉ JPY
                 balance = binance.fetch_balance()
-                jpy_balance = balance['free'].get('JPY', 0)
-                usdt_balance = balance['free'].get('USDT', 0)
+                current_jpy_balance = balance['free'].get('JPY', 0)
                 
-                # Tính tổng số dư khả dụng (ưu tiên USDT với giới hạn)
-                effective_usdt = min(usdt_balance, TRADING_CONFIG.get('max_order_value', float('inf')))
-                total_available_jpy = jpy_balance + (effective_usdt * 150)  # Convert USDT to JPY equivalent
+                # Tính toán số tiền đầu tư - chia đều
+                investment_amount = current_jpy_balance * allocation_per_coin
                 
-                # Tính toán số tiền đầu tư với số dư tổng hợp
-                investment_amount = total_available_jpy * allocation_per_coin
-                
-                # Kiểm tra giới hạn với logging chi tiết
-                min_order_jpy = TRADING_CONFIG['min_order_value'] * 150  # Convert USDT to JPY
-                print(f"💰 Số dư JPY: ¥{jpy_balance:,.2f}")
-                print(f"💰 Số dư USDT khả dụng: ${effective_usdt:,.2f}")
-                print(f"💰 Tổng khả dụng (JPY equivalent): ¥{total_available_jpy:,.2f}")
+                print(f"💰 Số dư JPY: ¥{current_jpy_balance:,.2f}")
                 print(f"🎯 Phân bổ: {allocation_per_coin*100:.1f}% = ¥{investment_amount:,.2f}")
-                print(f"📏 Tối thiểu cần: ¥{min_order_jpy:,.2f}")
-                
-                if investment_amount < min_order_jpy:
-                    print(f"❌ Số tiền đầu tư không đủ sau phân bổ: ¥{investment_amount:,.2f} < ¥{min_order_jpy:,.2f}")
-                    print(f"💡 Bỏ qua {coin_data['coin']} do thiếu vốn")
-                    continue
                 
                 # Tính số lượng coin
                 quantity = investment_amount / current_jpy_price
@@ -1224,40 +1258,19 @@ def execute_auto_trading(recommendations):
                 print(f"💱 Giá entry: ¥{entry_jpy:,.2f}")
                 print(f"💱 Giá thị trường hiện tại: ¥{current_jpy_price:,.2f}")
                 
-                # Kiểm tra khả năng trading với JPY hoặc USDT
-                if jpy_balance >= investment_amount:
+                # Trading đơn giản - chia đều số dư
+                if current_jpy_balance >= investment_amount:
                     # Đủ JPY - trade trực tiếp
                     print("💰 Sử dụng JPY để trading...")
-                    result = place_buy_order_with_sl_tp_fixed(
+                    result = place_buy_order_with_sl_tp(
                         original_symbol, quantity, entry_jpy, 
                         stop_loss_jpy, tp1_jpy, tp2_jpy
                     )
-                elif effective_usdt >= (investment_amount / 150):
-                    # Không đủ JPY nhưng đủ USDT - convert sang USDT trading
-                    usdt_symbol = original_symbol.replace('/JPY', '/USDT')
-                    print(f"💰 Không đủ JPY, chuyển sang trading USDT: {usdt_symbol}")
-                    
-                    # Convert các giá sang USDT (1 USD ≈ 150 JPY)
-                    entry_usdt = entry_jpy / 150
-                    stop_loss_usdt = stop_loss_jpy / 150
-                    tp1_usdt = tp1_jpy / 150
-                    tp2_usdt = tp2_jpy / 150
-                    usdt_investment = investment_amount / 150
-                    usdt_quantity = usdt_investment / entry_usdt
-                    
-                    print(f"💰 Investment USDT: ${usdt_investment:,.2f}")
-                    print(f"📊 Quantity USDT: {usdt_quantity:.6f}")
-                    print(f"💱 Entry USDT: ${entry_usdt:,.4f}")
-                    
-                    result = place_buy_order_with_sl_tp_fixed(
-                        usdt_symbol, usdt_quantity, entry_usdt, 
-                        stop_loss_usdt, tp1_usdt, tp2_usdt
-                    )
                 else:
-                    result = {
-                        'status': 'error',
-                        'error': f'Không đủ số dư. Cần JPY: ¥{investment_amount:,.2f} hoặc USDT: ${investment_amount/150:,.2f}'
-                    }
+                    # Không đủ JPY
+                    print(f"❌ Không đủ JPY: cần ¥{investment_amount:,.2f}, có ¥{current_jpy_balance:,.2f}")
+                    print(f"� Bỏ qua {coin_data['coin']} do thiếu vốn")
+                    continue
                 
                 if result['status'] == 'success':
                     successful_trades += 1
@@ -1273,9 +1286,42 @@ def execute_auto_trading(recommendations):
                         f"Giá: ¥{result.get('actual_price', entry_jpy):.2f}"
                     )
                 else:
-                    error_msg = f"❌ Trading {jpy_symbol} thất bại: {result.get('error', 'Unknown error')}"
-                    print(error_msg)
-                    send_notification(error_msg, urgent=True)
+                    # Xử lý các loại lỗi cụ thể
+                    error_type = result.get('error', 'unknown')
+                    error_details = result.get('details', 'No details')
+                    
+                    if error_type == 'insufficient_balance':
+                        error_msg = f"💰 BỎ QUA {jpy_symbol}: Không đủ số dư JPY"
+                        print(f"{error_msg}\n{error_details}")
+                        
+                        # Kiểm tra nếu đây là coin cuối cùng và vẫn còn một ít JPY
+                        remaining_balance = get_account_balance()
+                        if remaining_balance > 1000 and i == len(recommendations) - 1:  # Nếu còn >1000 JPY và là coin cuối
+                            print(f"💡 Thử lại với số dư còn lại: ¥{remaining_balance:.2f}")
+                            # Thử lại với số dư thực tế
+                            retry_quantity = remaining_balance * 0.95 / current_jpy_price  # 95% số dư còn lại
+                            retry_result = place_buy_order_with_sl_tp(
+                                original_symbol, retry_quantity, entry_jpy, 
+                                stop_loss_jpy, tp1_jpy, tp2_jpy
+                            )
+                            if retry_result['status'] == 'success':
+                                successful_trades += 1
+                                total_invested += remaining_balance * 0.95
+                                print(f"✅ Retry trading {jpy_symbol} thành công!")
+                            else:
+                                print(f"❌ Retry cũng thất bại: {retry_result.get('error')}")
+                    
+                    elif error_type == 'min_notional':
+                        print(f"📏 BỎ QUA {jpy_symbol}: Giá trị lệnh quá nhỏ (dưới minimum)")
+                        print(f"💡 Cần tăng số tiền đầu tư hoặc chọn coin khác")
+                    
+                    elif error_type == 'invalid_symbol':
+                        print(f"🚫 BỎ QUA {jpy_symbol}: Symbol không tồn tại trên Binance")
+                    
+                    else:
+                        error_msg = f"❌ Trading {jpy_symbol} thất bại: {error_type}"
+                        print(f"{error_msg}\n{error_details}")
+                        send_notification(f"{error_msg}\n{error_details}", urgent=True)
                 
                 # Delay giữa các trades
                 time.sleep(3)
@@ -1288,26 +1334,39 @@ def execute_auto_trading(recommendations):
         
         # 4. Tổng kết
         final_balance = get_account_balance()
+        failed_trades = len(recommendations) - successful_trades
+        
         print(f"\n{'='*80}")
         print(f"📊 TỔNG KẾT AUTO TRADING")
         print(f"{'='*80}")
         print(f"✅ Thành công: {successful_trades}/{len(recommendations)} trades")
-        print(f"💰 Tổng đầu tư: ${total_invested:.2f}")
-        print(f"💰 Số dư ban đầu: ${usdt_balance:.2f}")
-        print(f"💰 Số dư hiện tại: ${final_balance:.2f}")
+        print(f"❌ Thất bại: {failed_trades}/{len(recommendations)} trades")
+        print(f"💰 Tổng đầu tư: ¥{total_invested:.2f}")
+        print(f"💰 Số dư ban đầu: ¥{jpy_balance:.2f}")
+        print(f"💰 Số dư hiện tại: ¥{final_balance:.2f}")
+        print(f"💰 Số dư sử dụng: ¥{jpy_balance - final_balance:.2f} ({((jpy_balance - final_balance)/jpy_balance*100):+.1f}%)")
+        
+        if failed_trades > 0:
+            print(f"\n⚠️ CHÚ Ý:")
+            print(f"• {failed_trades} giao dịch thất bại có thể do:")
+            print(f"  - Số dư không đủ")
+            print(f"  - Giá trị lệnh quá nhỏ (min notional)")
+            print(f"  - Symbol không hỗ trợ")
+            print(f"  - Lỗi mạng/API Binance")
         
         if successful_trades > 0:
             print("\n🎯 THEO DÕI:")
-            print("• Kiểm tra orders trên Binance Testnet")
+            print("• Kiểm tra orders trên Binance")
             print("• Theo dõi stop loss và take profit")
             print("• Cập nhật strategy nếu cần")
             
             # Thông báo tổng kết
             send_notification(
                 f"📊 TỔNG KẾT TRADING\n"
-                f"Thành công: {successful_trades}/{len(recommendations)}\n"
-                f"Đầu tư: ${total_invested:.2f}\n"
-                f"Số dư: ${final_balance:.2f}"
+                f"✅ Thành công: {successful_trades}/{len(recommendations)}\n"
+                f"❌ Thất bại: {failed_trades}\n"
+                f"💰 Đầu tư: ¥{total_invested:.2f}\n"
+                f"💰 Số dư còn lại: ¥{final_balance:.2f}"
             )
         
     except Exception as e:
@@ -2914,7 +2973,7 @@ def show_active_orders():
         print(f"🔹 Order ID: {order_id}")
         print(f"   Symbol: {info['symbol']}")
         print(f"   Type: {info['order_type']}")
-        print(f"   Buy Price: ${info.get('buy_price', 'N/A')}")
+        print(f"   Buy Price: ¥{info.get('buy_price', 'N/A')}")
         print(f"   Added: {added_time}")
         print(f"   Last Checked: {last_checked}")
         print(f"   Last Filled: {info.get('last_filled', 0):.6f}")
