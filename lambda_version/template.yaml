@@ -1,0 +1,393 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Crypto Trading Bot - Lambda Serverless Version'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: 'testnet'
+    AllowedValues: ['testnet', 'production']
+    Description: Trading environment
+  
+  BinanceApiKey:
+    Type: String
+    NoEcho: true
+    Description: Binance API Key
+  
+  BinanceSecret:
+    Type: String
+    NoEcho: true
+    Description: Binance API Secret
+  
+  NotificationEmail:
+    Type: String
+    Default: 'onlyone231287@gmail.com'
+    Description: Email for notifications
+
+Globals:
+  Function:
+    Timeout: 300
+    MemorySize: 512
+    Runtime: python3.9
+    Environment:
+      Variables:
+        AWS_REGION: !Ref AWS::Region
+        DYNAMODB_PREFIX: !Sub 'crypto-trading-${Environment}'
+        LOG_LEVEL: INFO
+        BINANCE_SANDBOX: !If [IsTestnet, 'true', 'false']
+
+Conditions:
+  IsTestnet: !Equals [!Ref Environment, 'testnet']
+  IsProduction: !Equals [!Ref Environment, 'production']
+
+Resources:
+  # ========================================
+  # LAMBDA FUNCTIONS
+  # ========================================
+  
+  TradingBotFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'crypto-trading-bot-${Environment}'
+      CodeUri: ./
+      Handler: lambda_handler.lambda_handler
+      Description: 'Main trading bot function'
+      ReservedConcurrencyLimit: 2
+      Environment:
+        Variables:
+          BINANCE_API_KEY: !Ref BinanceApiKey
+          BINANCE_SECRET: !Ref BinanceSecret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TradesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnalysisTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SystemStatusTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AccountSnapshotsTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TradeNotificationsTopic.TopicName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ErrorNotificationsTopic.TopicName
+        - CloudWatchPutMetricPolicy: {}
+      Events:
+        ScheduledAnalysis:
+          Type: Schedule
+          Properties:
+            Schedule: 'rate(15 minutes)'  # Run every 15 minutes
+            Input: |
+              {
+                "source": "scheduled",
+                "action": "analyze_and_trade"
+              }
+        OrderMonitoring:
+          Type: Schedule
+          Properties:
+            Schedule: 'rate(5 minutes)'   # Monitor orders every 5 minutes
+            Input: |
+              {
+                "source": "scheduled", 
+                "action": "monitor_orders"
+              }
+        ApiGateway:
+          Type: Api
+          Properties:
+            Path: /trading
+            Method: post
+            RestApiId: !Ref TradingApi
+
+  # ========================================
+  # API GATEWAY
+  # ========================================
+  
+  TradingApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub 'crypto-trading-api-${Environment}'
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'POST, GET, OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      Auth:
+        ApiKeyRequired: true
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          UsagePlanName: !Sub 'trading-bot-usage-plan-${Environment}'
+          Throttle:
+            RateLimit: 10
+            BurstLimit: 20
+
+  # ========================================
+  # DYNAMODB TABLES
+  # ========================================
+  
+  TradesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'crypto-trading-${Environment}-trades'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: trade_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: trade_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: timestamp-index
+          KeySchema:
+            - AttributeName: timestamp
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'crypto-trading-${Environment}-orders'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: order_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: order_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  AnalysisTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'crypto-trading-${Environment}-analysis'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: analysis_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: analysis_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: timestamp-index
+          KeySchema:
+            - AttributeName: timestamp
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  SystemStatusTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'crypto-trading-${Environment}-system-status'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: status_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: status_key
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  AccountSnapshotsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'crypto-trading-${Environment}-account-snapshots'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: snapshot_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: snapshot_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: timestamp-index
+          KeySchema:
+            - AttributeName: timestamp
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ========================================
+  # SNS TOPICS
+  # ========================================
+  
+  TradeNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'crypto-trading-${Environment}-trades'
+      DisplayName: 'Crypto Trading Notifications'
+
+  ErrorNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'crypto-trading-${Environment}-errors'
+      DisplayName: 'Crypto Trading Error Notifications'
+
+  # Email subscriptions
+  TradeEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref TradeNotificationsTopic
+      Endpoint: !Ref NotificationEmail
+
+  ErrorEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref ErrorNotificationsTopic
+      Endpoint: !Ref NotificationEmail
+
+  # ========================================
+  # CLOUDWATCH ALARMS
+  # ========================================
+  
+  FunctionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'crypto-trading-${Environment}-function-errors'
+      AlarmDescription: 'Trading function error rate alarm'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref TradingBotFunction
+      AlarmActions:
+        - !Ref ErrorNotificationsTopic
+
+  FunctionDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'crypto-trading-${Environment}-function-duration'
+      AlarmDescription: 'Trading function duration alarm'
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 240000  # 4 minutes in milliseconds
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref TradingBotFunction
+      AlarmActions:
+        - !Ref ErrorNotificationsTopic
+
+  # ========================================
+  # IAM ROLES & POLICIES
+  # ========================================
+  
+  TradingBotExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'crypto-trading-${Environment}-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt TradesTable.Arn
+                  - !GetAtt OrdersTable.Arn
+                  - !GetAtt AnalysisTable.Arn
+                  - !GetAtt SystemStatusTable.Arn
+                  - !GetAtt AccountSnapshotsTable.Arn
+                  - !Sub '${TradesTable.Arn}/index/*'
+                  - !Sub '${AnalysisTable.Arn}/index/*'
+                  - !Sub '${AccountSnapshotsTable.Arn}/index/*'
+        - PolicyName: SNSPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref TradeNotificationsTopic
+                  - !Ref ErrorNotificationsTopic
+
+# ========================================
+# OUTPUTS
+# ========================================
+
+Outputs:
+  TradingBotFunctionArn:
+    Description: 'Trading Bot Lambda Function ARN'
+    Value: !GetAtt TradingBotFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-TradingBotFunctionArn'
+
+  ApiGatewayUrl:
+    Description: 'API Gateway URL'
+    Value: !Sub 'https://${TradingApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGatewayUrl'
+
+  TradeNotificationsTopicArn:
+    Description: 'Trade Notifications SNS Topic ARN'
+    Value: !Ref TradeNotificationsTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-TradeNotificationsTopicArn'
+
+  ErrorNotificationsTopicArn:
+    Description: 'Error Notifications SNS Topic ARN'  
+    Value: !Ref ErrorNotificationsTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-ErrorNotificationsTopicArn'
+
+  DynamoDBTables:
+    Description: 'DynamoDB Table Names'
+    Value: !Sub |
+      Trades: ${TradesTable}
+      Orders: ${OrdersTable}
+      Analysis: ${AnalysisTable}
+      SystemStatus: ${SystemStatusTable}
+      AccountSnapshots: ${AccountSnapshotsTable}
+    Export:
+      Name: !Sub '${AWS::StackName}-DynamoDBTables'
