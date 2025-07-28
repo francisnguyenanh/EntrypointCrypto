@@ -3,5 +3,4 @@ pandas
 numpy
 ta
 scikit-learn
-tensorflow
-vectorbt
+glob2
