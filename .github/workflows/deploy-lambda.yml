@@ -1,0 +1,239 @@
+name: Deploy Crypto Trading Bot to AWS Lambda
+
+on:
+  push:
+    branches: [main]
+    paths: ['lambda_version/**']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'testnet'
+        type: choice
+        options:
+        - testnet
+        - production
+      force_deploy:
+        description: 'Force deployment even without changes'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: ap-southeast-1
+  SAM_CLI_TELEMETRY: 0
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set environment
+      id: set-env
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+        else
+          echo "environment=testnet" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        cd lambda_version
+        pip install -r requirements-local.txt
+    
+    - name: Run tests
+      run: |
+        cd lambda_version
+        python test_dependencies.py
+    
+    - name: Validate SAM template
+      run: |
+        cd lambda_version
+        pip install aws-sam-cli
+        sam validate
+
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ needs.validate.outputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Setup SAM CLI
+      uses: aws-actions/setup-sam@v2
+      with:
+        use-installer: true
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Verify AWS connection
+      run: |
+        aws sts get-caller-identity
+        echo "✅ AWS connection verified"
+    
+    - name: Build Lambda package
+      run: |
+        cd lambda_version
+        echo "🏗️ Building Lambda package..."
+        sam build --use-container
+        echo "✅ Build completed"
+    
+    - name: Deploy to AWS Lambda
+      run: |
+        cd lambda_version
+        ENV=${{ needs.validate.outputs.environment }}
+        STACK_NAME="crypto-trading-bot-${ENV}"
+        
+        echo "🚀 Deploying to environment: ${ENV}"
+        echo "📦 Stack name: ${STACK_NAME}"
+        
+        sam deploy \
+          --stack-name "${STACK_NAME}" \
+          --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+          --region ${{ env.AWS_REGION }} \
+          --parameter-overrides \
+            Environment="${ENV}" \
+            BinanceApiKey="${{ secrets.BINANCE_API_KEY }}" \
+            BinanceSecret="${{ secrets.BINANCE_SECRET }}" \
+            NotificationEmail="${{ secrets.NOTIFICATION_EMAIL }}" \
+          --no-confirm-changeset \
+          --no-fail-on-empty-changeset
+        
+        echo "✅ Deployment completed"
+    
+    - name: Get deployment outputs
+      id: outputs
+      run: |
+        cd lambda_version
+        ENV=${{ needs.validate.outputs.environment }}
+        STACK_NAME="crypto-trading-bot-${ENV}"
+        
+        # Get function ARN
+        FUNCTION_ARN=$(aws cloudformation describe-stacks \
+          --stack-name "${STACK_NAME}" \
+          --region ${{ env.AWS_REGION }} \
+          --query 'Stacks[0].Outputs[?OutputKey==`TradingBotFunctionArn`].OutputValue' \
+          --output text)
+        
+        # Get API Gateway URL
+        API_URL=$(aws cloudformation describe-stacks \
+          --stack-name "${STACK_NAME}" \
+          --region ${{ env.AWS_REGION }} \
+          --query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayUrl`].OutputValue' \
+          --output text)
+        
+        echo "function_arn=${FUNCTION_ARN}" >> $GITHUB_OUTPUT
+        echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+        
+        echo "🔗 Function ARN: ${FUNCTION_ARN}"
+        echo "🌐 API URL: ${API_URL}"
+    
+    - name: Test deployment
+      run: |
+        cd lambda_version
+        ENV=${{ needs.validate.outputs.environment }}
+        FUNCTION_NAME="crypto-trading-bot-${ENV}"
+        
+        echo "🧪 Testing deployment..."
+        
+        # Test function invoke
+        aws lambda invoke \
+          --function-name "${FUNCTION_NAME}" \
+          --region ${{ env.AWS_REGION }} \
+          --payload '{"action":"get_account_info"}' \
+          --cli-binary-format raw-in-base64-out \
+          response.json
+        
+        if [ $? -eq 0 ]; then
+          echo "✅ Lambda function test successful"
+          echo "📋 Response:"
+          cat response.json | python -m json.tool
+        else
+          echo "❌ Lambda function test failed"
+          exit 1
+        fi
+    
+    - name: Create deployment summary
+      run: |
+        cd lambda_version
+        ENV=${{ needs.validate.outputs.environment }}
+        
+        cat << EOF >> $GITHUB_STEP_SUMMARY
+        ## 🚀 Deployment Summary
+        
+        **Environment:** \`${ENV}\`
+        **Region:** \`${{ env.AWS_REGION }}\`
+        **Stack:** \`crypto-trading-bot-${ENV}\`
+        
+        ### 📊 Resources Created
+        - ✅ Lambda Function: \`crypto-trading-bot-${ENV}\`
+        - ✅ DynamoDB Tables: Trading data storage
+        - ✅ SNS Topic: Email notifications
+        - ✅ API Gateway: Manual trading endpoints
+        - ✅ CloudWatch Logs: Monitoring and debugging
+        
+        ### 🔗 Endpoints
+        - **Function ARN:** \`${{ steps.outputs.outputs.function_arn }}\`
+        - **API Gateway:** \`${{ steps.outputs.outputs.api_url }}\`
+        
+        ### 🛠️ Management Commands
+        \`\`\`bash
+        # View logs
+        aws logs tail /aws/lambda/crypto-trading-bot-${ENV} --follow
+        
+        # Manual invoke
+        aws lambda invoke --function-name crypto-trading-bot-${ENV} --payload '{"action":"analyze_and_trade"}' response.json
+        
+        # Emergency stop
+        aws lambda invoke --function-name crypto-trading-bot-${ENV} --payload '{"action":"emergency_stop"}' response.json
+        \`\`\`
+        
+        ### ⚠️ Next Steps
+        1. Confirm SNS email subscription in your inbox
+        2. Monitor CloudWatch logs for scheduled executions
+        3. Test manual trading via API Gateway
+        4. Set up CloudWatch alarms for monitoring
+        
+        ---
+        **Deployment Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+        EOF
+
+  notify:
+    needs: [validate, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Notify deployment status
+      run: |
+        ENV=${{ needs.validate.outputs.environment }}
+        if [ "${{ needs.deploy.result }}" == "success" ]; then
+          echo "✅ Deployment to ${ENV} successful!"
+        else
+          echo "❌ Deployment to ${ENV} failed!"
+          exit 1
+        fi
