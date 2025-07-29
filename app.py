@@ -2038,64 +2038,6 @@ def run_manual_mode():
     # Dừng bot sau khi hoàn thành manual mode
     BOT_RUNNING = False
 
-# ======================== MAIN ENTRY POINT ========================
-
-def main():
-    """Main entry point với proper error handling"""
-    try:
-        print("🚀 Khởi động Trading Bot...")
-        
-        # Validate all required functions exist - simple approach
-        required_functions = ['print_results', 'startup_bot_with_error_handling', 'check_and_process_sell_orders']
-        missing = []
-        
-        # Get current module's globals
-        module_globals = globals()
-        
-        for func_name in required_functions:
-            if func_name not in module_globals:
-                missing.append(func_name)
-            elif not callable(module_globals[func_name]):
-                missing.append(f"{func_name} (not callable)")
-        
-        if missing:
-            print(f"🚨 Lỗi: Thiếu functions: {missing}")
-            print("📝 Debug info:")
-            # Debug: show what functions are available
-            available_funcs = [name for name, obj in module_globals.items() 
-                             if callable(obj) and not name.startswith('_')]
-            print(f"📋 Total callable functions: {len(available_funcs)}")
-            for func in required_functions:
-                if func in module_globals:
-                    is_callable = callable(module_globals[func])
-                    print(f"  {'✅' if is_callable else '❌'} {func}: {'Found and callable' if is_callable else 'Found but not callable'}")
-                else:
-                    print(f"  ❌ {func}: Not found in globals")
-            return
-        
-        print("✅ All functions validated")
-        
-        # Hiển thị mode hoạt động
-        continuous_mode = TRADING_CONFIG.get('continuous_monitoring', True)
-        if continuous_mode:
-            print("🔄 Mode: CONTINUOUS - Bot sẽ tự động lặp kiểm tra + trading")
-        else:
-            print("🎯 Mode: MANUAL - Bot sẽ chạy 1 lần duy nhất")
-        
-        # Run bot
-        run_bot_continuously()
-        
-    except KeyboardInterrupt:
-        print("\n🛑 Dừng bot bằng Ctrl+C")
-    except Exception as e:
-        print(f"🚨 Lỗi critical trong main: {e}")
-        import traceback
-        traceback.print_exc()
-
-# Thêm vào cuối file nếu chạy trực tiếp
-if __name__ == "__main__":
-    main()
-
 # ======================== UTILITY FUNCTIONS ========================
 
 def stop_bot_gracefully():
@@ -3016,6 +2958,60 @@ def check_all_orders_now():
 print("🚀 Đang khởi tạo EntryPoint Crypto Trading Bot...")
 initialize_order_monitoring()
 
+# ======================== MAIN ENTRY POINT ========================
+
+def main():
+    """Main entry point với proper error handling"""
+    try:
+        print("🚀 Khởi động Trading Bot...")
+        
+        # Validate all required functions exist - simple approach
+        required_functions = ['print_results', 'startup_bot_with_error_handling', 'check_and_process_sell_orders']
+        missing = []
+        
+        # Get current module's globals
+        module_globals = globals()
+        
+        for func_name in required_functions:
+            if func_name not in module_globals:
+                missing.append(func_name)
+            elif not callable(module_globals[func_name]):
+                missing.append(f"{func_name} (not callable)")
+        
+        if missing:
+            print(f"🚨 Lỗi: Thiếu functions: {missing}")
+            print("📝 Debug info:")
+            # Debug: show what functions are available
+            available_funcs = [name for name, obj in module_globals.items() 
+                             if callable(obj) and not name.startswith('_')]
+            print(f"📋 Total callable functions: {len(available_funcs)}")
+            for func in required_functions:
+                if func in module_globals:
+                    is_callable = callable(module_globals[func])
+                    print(f"  {'✅' if is_callable else '❌'} {func}: {'Found and callable' if is_callable else 'Found but not callable'}")
+                else:
+                    print(f"  ❌ {func}: Not found in globals")
+            return
+        
+        print("✅ All functions validated")
+        
+        # Hiển thị mode hoạt động
+        continuous_mode = TRADING_CONFIG.get('continuous_monitoring', True)
+        if continuous_mode:
+            print("🔄 Mode: CONTINUOUS - Bot sẽ tự động lặp kiểm tra + trading")
+        else:
+            print("🎯 Mode: MANUAL - Bot sẽ chạy 1 lần duy nhất")
+        
+        # Run bot
+        run_bot_continuously()
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Dừng bot bằng Ctrl+C")
+    except Exception as e:
+        print(f"🚨 Lỗi critical trong main: {e}")
+        import traceback
+        traceback.print_exc()
+
 # Chạy chương trình
 if __name__ == "__main__":
-    print_results()
+    main()
