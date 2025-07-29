@@ -996,9 +996,11 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                     side='sell',
                     amount=actual_quantity * 0.7,  # 70% cho OCO
                     price=tp1_price,  # Take profit price
-                    stopPrice=stop_loss,  # Stop loss trigger price
-                    stopLimitPrice=stop_loss * (1 - TRADING_CONFIG['stop_loss_buffer']),
-                    params={'stopLimitTimeInForce': 'GTC'}
+                    params={
+                        'stopPrice': stop_loss,  # Stop loss trigger price
+                        'stopLimitPrice': stop_loss * (1 - TRADING_CONFIG['stop_loss_buffer']),
+                        'stopLimitTimeInForce': 'GTC'
+                    }
                 )
                 orders_placed.append(oco_order)
                 print(f"✅ OCO order đặt thành công - SL: ¥{stop_loss:.4f}, TP: ¥{tp1_price:.4f}")
@@ -1015,8 +1017,10 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                     side='sell',
                     amount=actual_quantity,
                     price=stop_loss * (1 - TRADING_CONFIG.get('stop_loss_buffer', 0.001)),
-                    stopPrice=stop_loss,
-                    params={'timeInForce': 'GTC'}
+                    params={
+                        'stopPrice': stop_loss,
+                        'timeInForce': 'GTC'
+                    }
                 )
                 orders_placed.append(stop_order)
                 print(f"✅ Stop Loss đặt thành công: ¥{stop_loss:,.2f}")

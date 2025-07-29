@@ -389,8 +389,10 @@ class LambdaTradingBot:
                     side='sell',
                     amount=actual_quantity,
                     price=stop_loss * 0.999,  # Slightly below stop price
-                    stopPrice=stop_loss,
-                    params={'timeInForce': 'GTC'}
+                    params={
+                        'stopPrice': stop_loss,
+                        'timeInForce': 'GTC'
+                    }
                 )
             except Exception as sl_error:
                 logger.error(f"Failed to place stop loss: {sl_error}")
