@@ -1,0 +1,9 @@
+{
+  "action": "find_best_coins",
+  "timeframe": "1h",
+  "min_win_rate": 70,
+  "min_profit_potential": 2.0,
+  "signal_mode": "strict",
+  "test_mode": true,
+  "description": "Test finding best coins - Tìm coin tốt nhất"
+}

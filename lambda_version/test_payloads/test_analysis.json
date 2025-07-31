@@ -1,0 +1,7 @@
+{
+  "action": "analyze_market",
+  "symbol": "BTCUSDT",
+  "timeframe": "1h",
+  "test_mode": true,
+  "description": "Test market analysis for BTC - Phân tích thị trường BTC"
+}
