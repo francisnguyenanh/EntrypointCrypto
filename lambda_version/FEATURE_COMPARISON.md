@@ -75,10 +75,12 @@ So sánh đầy đủ tính năng giữa phiên bản AWS Lambda và app.py gố
 
 ### **Tính năng Đặc biệt cho Lambda**
 - ✅ **Stateless Design**: Không lưu trữ state giữa các lần gọi
-- ✅ **AWS Integration**: DynamoDB, SNS, CloudWatch
+- ✅ **AWS Integration**: SNS, CloudWatch (không cần DynamoDB)
 - ✅ **Error Handling**: Comprehensive error responses
 - ✅ **Debug Mode**: Emergency debugging capabilities
 - ✅ **JSON API**: RESTful API responses
+- ✅ **Email Notifications**: SMTP email như app.py
+- ✅ **Test/Live Mode**: Environment variable control
 
 ## 🚀 Ưu điểm Lambda so với App.py
 
@@ -89,9 +91,9 @@ So sánh đầy đủ tính năng giữa phiên bản AWS Lambda và app.py gố
 
 ### **2. Tích hợp AWS**
 - **CloudWatch**: Monitoring và logging tự động
-- **DynamoDB**: Lưu trữ lịch sử giao dịch
 - **SNS**: Thông báo realtime
 - **API Gateway**: REST API endpoints
+- **Email Integration**: SMTP email notifications như app.py
 
 ### **3. Reliability**
 - **High Availability**: 99.95% uptime SLA

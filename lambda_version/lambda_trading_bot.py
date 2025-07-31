@@ -10,6 +10,9 @@ import os
 import sys
 import time
 import warnings
+import smtplib
+from email.mime.text import MimeText
+from email.mime.multipart import MimeMultipart
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -27,10 +30,9 @@ try:
 except ImportError:
     TA_AVAILABLE = False
 
-# AWS services (will be imported conditionally)
+# AWS imports (only SNS for notifications)
 try:
     import boto3
-    from boto3.dynamodb.conditions import Key
     AWS_AVAILABLE = True
 except ImportError:
     AWS_AVAILABLE = False
@@ -61,7 +63,14 @@ LAMBDA_CONFIG = {
     'notifications': {
         'sns_topic_arn': os.environ.get('SNS_TOPIC_ARN'),
         'email_enabled': True,
-        'urgent_only': False
+        'urgent_only': False,
+        'email_settings': {
+            'smtp_server': os.environ.get('SMTP_SERVER', 'smtp.gmail.com'),
+            'smtp_port': int(os.environ.get('SMTP_PORT', '587')),
+            'sender_email': os.environ.get('SENDER_EMAIL', ''),
+            'sender_password': os.environ.get('SENDER_PASSWORD', ''),
+            'recipient_email': os.environ.get('RECIPIENT_EMAIL', '')
+        }
     }
 }
 
@@ -82,19 +91,20 @@ class LambdaTradingCore:
     def __init__(self):
         """Initialize Lambda Trading Core"""
         try:
-            # Initialize Binance API
+            # Initialize exchange
             self.binance = ccxt.binance(BINANCE_CONFIG)
-            logger.info("✅ Binance API initialized")
+            logger.info(f"✅ Binance connection initialized (testnet: {BINANCE_CONFIG['sandbox']})")
             
-            # Initialize AWS services if available
+            # Initialize AWS services (optional)
             if AWS_AVAILABLE:
-                self.dynamodb = boto3.resource('dynamodb')
-                self.sns = boto3.client('sns')
-                logger.info("✅ AWS services initialized")
+                try:
+                    self.sns = boto3.client('sns')
+                    logger.info("✅ AWS SNS initialized")
+                except Exception as e:
+                    logger.warning(f"⚠️ SNS initialization failed: {e}")
+                    self.sns = None
             else:
-                self.dynamodb = None
                 self.sns = None
-                logger.warning("⚠️ AWS services not available - using in-memory storage")
             
             self.config = LAMBDA_CONFIG
             self.start_time = time.time()
@@ -612,12 +622,76 @@ class LambdaTradingCore:
             }
     
     def send_notification(self, message: str, urgent: bool = False) -> bool:
-        """Send notification via SNS"""
+        """Send notification via email and/or SNS"""
+        success = True
+        
+        # Send email notification
+        if self.config['notifications']['email_enabled']:
+            email_success = self.send_email_notification(message, urgent)
+            success = success and email_success
+        
+        # Send SNS notification
+        if self.sns and self.config['notifications']['sns_topic_arn']:
+            sns_success = self.send_sns_notification(message, urgent)
+            success = success and sns_success
+        
+        if not self.sns and not self.config['notifications']['email_enabled']:
+            logger.info(f"📱 NOTIFICATION: {message}")
+        
+        return success
+    
+    def send_email_notification(self, message: str, urgent: bool = False) -> bool:
+        """Send email notification like app.py"""
         try:
-            if not self.sns or not self.config['notifications']['sns_topic_arn']:
-                logger.info(f"📱 NOTIFICATION: {message}")
-                return True
+            email_settings = self.config['notifications']['email_settings']
             
+            if not all([email_settings['sender_email'], 
+                       email_settings['sender_password'], 
+                       email_settings['recipient_email']]):
+                logger.warning("⚠️ Email settings not configured")
+                return False
+            
+            # Create message
+            msg = MimeMultipart()
+            msg['From'] = email_settings['sender_email']
+            msg['To'] = email_settings['recipient_email']
+            
+            if urgent:
+                msg['Subject'] = "🚨 URGENT TRADING ALERT - Lambda Bot"
+            else:
+                msg['Subject'] = f"📈 Trading Notification - Lambda Bot ({datetime.now().strftime('%H:%M:%S')})"
+            
+            # Email body
+            body = f"""
+Lambda Trading Bot Notification
+{'='*50}
+
+{message}
+
+{'='*50}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Mode: {'TESTNET' if BINANCE_CONFIG['sandbox'] else 'LIVE TRADING'}
+Lambda Function: {os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'local')}
+"""
+            
+            msg.attach(MimeText(body, 'plain'))
+            
+            # Send email
+            with smtplib.SMTP(email_settings['smtp_server'], email_settings['smtp_port']) as server:
+                server.starttls()
+                server.login(email_settings['sender_email'], email_settings['sender_password'])
+                server.send_message(msg)
+            
+            logger.info("📧 Email notification sent successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to send email: {e}")
+            return False
+    
+    def send_sns_notification(self, message: str, urgent: bool = False) -> bool:
+        """Send SNS notification"""
+        try:
             subject = "🚨 URGENT TRADING ALERT" if urgent else "📈 Trading Notification"
             
             response = self.sns.publish(
@@ -626,8 +700,12 @@ class LambdaTradingCore:
                 Message=message
             )
             
-            logger.info(f"📧 Notification sent: {response['MessageId']}")
+            logger.info(f"� SNS notification sent: {response['MessageId']}")
             return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to send SNS: {e}")
+            return False
             
         except Exception as e:
             logger.error(f"❌ Failed to send notification: {e}")

@@ -1,0 +1,7 @@
+{
+  "action": "test_email",
+  "message": "Test email notification from Lambda Trading Bot",
+  "urgent": false,
+  "test_mode": true,
+  "description": "Test email functionality like app.py"
+}
