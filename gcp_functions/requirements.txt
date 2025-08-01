@@ -1,0 +1,32 @@
+# Requirements for Google Cloud Functions
+# Tối ưu cho cost và performance
+
+# Core dependencies
+ccxt==4.1.64
+pandas==2.1.4
+numpy==1.24.4
+
+# Technical analysis - lightweight
+ta==0.10.2
+
+# Google Cloud
+functions-framework==3.5.0
+google-cloud-firestore==2.13.1
+google-cloud-logging==3.8.0
+
+# HTTP and data handling
+requests==2.31.0
+flask==3.0.0
+
+# Date/time utilities
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Performance optimization
+cython==3.0.6
+
+# Remove heavy dependencies for cost optimization:
+# - tensorflow (too large and expensive)
+# - scikit-learn (not essential for basic trading)
+# - vectorbt (not needed)
+# - boto3 (AWS specific)
