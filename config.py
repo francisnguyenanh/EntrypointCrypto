@@ -40,7 +40,7 @@ VOLATILITY_RANGE = [3, 5, 7]
 TAKE_PROFIT_RANGE = [0.01, 0.02, 0.03]
 
 # Cấu hình timeframes
-TIMEFRAMES = ['15m', '30m', '1h', '4h']
+TIMEFRAMES = ['30m', '1h', '4h']  # 30m làm timeframe chính
 
 # Cấu hình sổ lệnh (Order Book)
 ORDER_BOOK_DEPTH = 20  # Độ sâu sổ lệnh

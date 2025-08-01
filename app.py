@@ -1019,13 +1019,13 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
         
         # Nếu OCO thất bại hoặc không được bật, đặt lệnh riêng lẻ
         if not oco_success:
-            # PHÂN CHIA ĐƠN GIẢN: CHỈ SL + TP (tránh lỗi NOTIONAL)
-            total_reserve = available_coin * 0.95  # Chỉ sử dụng 95% số dư
-            sl_quantity = total_reserve * 0.6      # 60% cho stop loss
-            tp_quantity = total_reserve * 0.4      # 40% cho TP
+            # LOGIC ĐÚNG: SL và TP đều bán TẤT CẢ coin (1 TP system)
+            total_reserve = available_coin * 0.95  # Chỉ sử dụng 95% số dư để tránh lỗi
+            sl_quantity = total_reserve           # SL = 100% coin có sẵn
+            tp_quantity = total_reserve           # TP = 100% coin có sẵn (cùng số lượng)
             
-            print(f"📊 Phân chia lệnh bán: SL={sl_quantity:.6f} | TP={tp_quantity:.6f}")
-            print("💡 Chỉ đặt 1 TP để đảm bảo lãi sau phí")
+            print(f"📊 Lệnh bán ALL-IN: SL={sl_quantity:.6f} | TP={tp_quantity:.6f}")
+            print("💡 Cả SL và TP đều bán 100% coin - chỉ 1 trong 2 sẽ được kích hoạt")
             
             # Kiểm tra giá trị minimum notional cho TP
             min_notional = 5.0  # Binance minimum là 5 JPY
@@ -2243,7 +2243,7 @@ def demo_downtrend_detection(symbol_list=None):
             print(f"\n📊 Analyzing {symbol}...")
             
             # Lấy dữ liệu
-            df = get_crypto_data(symbol, timeframe='1h', limit=100)
+            df = get_crypto_data(symbol, timeframe='30m', limit=100)
             if df is None or len(df) < 50:
                 print(f"❌ {symbol}: Insufficient data")
                 continue
@@ -2328,7 +2328,7 @@ def show_downtrend_protection_info():
     print("=" * 50)
 
 # Hàm tóm tắt tất cả tính năng mới được thêm
-def find_orderbook_opportunities(timeframe='1h', min_confidence=50):
+def find_orderbook_opportunities(timeframe='30m', min_confidence=50):
     """
     Tìm cơ hội giao dịch dựa trên sổ lệnh khi không có tín hiệu kỹ thuật - TỐI ƯU TỐC ĐỘ
     """
@@ -2527,7 +2527,10 @@ def check_and_process_sell_orders():
     
     orders_to_remove = []
     
-    for order_id, order_info in ACTIVE_ORDERS.items():
+    # Tạo bản sao để tránh lỗi "dictionary changed size during iteration"
+    active_orders_copy = dict(ACTIVE_ORDERS)
+    
+    for order_id, order_info in active_orders_copy.items():
         try:
             print(f"  Kiểm tra lệnh {order_id} ({order_info['symbol']})...")
             
@@ -2892,7 +2895,7 @@ def predict_price_lstm(df, look_back=10):  # Giảm từ 20 xuống 10
         return df['close'].iloc[-1] * (1 + np.random.uniform(-0.02, 0.02))  # ±2% random
 
 # Hàm tính toán các chỉ số kỹ thuật và tín hiệu giao dịch
-def analyze_trends(df, timeframe='1h', rsi_buy=65, rsi_sell=35, volatility_threshold=5, signal_mode='strict'):
+def analyze_trends(df, timeframe='30m', rsi_buy=65, rsi_sell=35, volatility_threshold=5, signal_mode='strict'):
     if len(df) < 50:  # Giảm từ 200 xuống 50
         return None
     
@@ -3006,6 +3009,7 @@ def calculate_optimal_entry_exit(current_price, order_book_analysis, support_lev
     return {
         'optimal_entry': optimal_entry,
         'stop_loss': stop_loss,
+        'tp_price': tp1_price,  # TP chính = TP1 (single TP system)
         'tp1_price': tp1_price,
         'tp2_price': tp2_price,
         'tp3_price': tp3_price,
@@ -3026,7 +3030,7 @@ def vectorbt_optimize(df, rsi_buy_range=[60, 70], rsi_sell_range=[30, 40], vol_r
     # Giảm số lượng combination để tăng tốc
     for rsi_buy, rsi_sell, vol_threshold, take_profit in product(rsi_buy_range, rsi_sell_range, vol_range, tp_range):
         try:
-            df_ = analyze_trends(df.copy(), timeframe='1h', rsi_buy=rsi_buy, rsi_sell=rsi_sell, volatility_threshold=vol_threshold)
+            df_ = analyze_trends(df.copy(), timeframe='30m', rsi_buy=rsi_buy, rsi_sell=rsi_sell, volatility_threshold=vol_threshold)
             if df_ is None or len(df_) < 10:  # Giảm từ 20 xuống 10
                 continue
             
@@ -3095,7 +3099,7 @@ def vectorbt_optimize(df, rsi_buy_range=[60, 70], rsi_sell_range=[30, 40], vol_r
     return best_win_rate, best_profit, best_params
 
 # Hàm chọn 3 coin có điểm vào tốt nhất với tự động điều chỉnh - TỐI ƯU TỐC ĐỘ
-def find_best_coins(timeframe='1h', min_win_rate=None, min_profit_potential=None, signal_mode='strict'):
+def find_best_coins(timeframe='30m', min_win_rate=None, min_profit_potential=None, signal_mode='strict'):
     # Sử dụng giá trị từ config nếu không được truyền vào
     if min_win_rate is None:
         min_win_rate = config.MIN_WIN_RATE
@@ -3187,6 +3191,7 @@ def find_best_coins(timeframe='1h', min_win_rate=None, min_profit_potential=None
                             'current_price': current_price,
                             'optimal_entry': optimal_entry,
                             'stop_loss': stop_loss,
+                            'tp_price': tp1_price,  # TP chính = TP1 (single TP system)
                             'tp1_price': tp1_price,
                             'tp2_price': tp2_price,
                             'tp3_price': tp3_price,
@@ -3232,7 +3237,7 @@ def find_best_coins(timeframe='1h', min_win_rate=None, min_profit_potential=None
         return []
 
 # Hàm tự động điều chỉnh tham số để tìm ít nhất 1 coin - SILENT MODE
-def find_coins_with_auto_adjust_silent(timeframe='1h'):
+def find_coins_with_auto_adjust_silent(timeframe='30m'):
     if not config.AUTO_ADJUST_ENABLED:
         return find_best_coins_silent(timeframe)
     
@@ -3253,7 +3258,7 @@ def find_coins_with_auto_adjust_silent(timeframe='1h'):
     return results
 
 # Hàm tìm best coins - SILENT MODE
-def find_best_coins_silent(timeframe='1h', min_win_rate=None, min_profit_potential=None, signal_mode='strict'):
+def find_best_coins_silent(timeframe='30m', min_win_rate=None, min_profit_potential=None, signal_mode='strict'):
     # Sử dụng giá trị từ config nếu không được truyền vào
     if min_win_rate is None:
         min_win_rate = config.MIN_WIN_RATE
@@ -3329,6 +3334,7 @@ def find_best_coins_silent(timeframe='1h', min_win_rate=None, min_profit_potenti
                             'current_price': current_price,
                             'optimal_entry': optimal_entry,
                             'stop_loss': stop_loss,
+                            'tp_price': tp1_price,  # TP chính = TP1 (single TP system)
                             'tp1_price': tp1_price,
                             'tp2_price': tp2_price,
                             'tp3_price': tp3_price,
@@ -3371,7 +3377,7 @@ def find_best_coins_silent(timeframe='1h', min_win_rate=None, min_profit_potenti
         return []
 
 # Hàm tìm cơ hội orderbook - SILENT MODE  
-def find_orderbook_opportunities_silent(timeframe='1h', min_confidence=50):
+def find_orderbook_opportunities_silent(timeframe='30m', min_confidence=50):
     try:
         jpy_pairs = get_jpy_pairs()
         if not jpy_pairs:
@@ -3426,7 +3432,7 @@ def find_orderbook_opportunities_silent(timeframe='1h', min_confidence=50):
         return []
 
 # Hàm tự động điều chỉnh tham số để tìm ít nhất 1 coin
-def find_coins_with_auto_adjust(timeframe='1h'):
+def find_coins_with_auto_adjust(timeframe='30m'):
     if not config.AUTO_ADJUST_ENABLED:
         return find_best_coins(timeframe)
     
@@ -3643,7 +3649,10 @@ def check_all_orders_now():
     
     print(f"🔍 Đang kiểm tra {len(ACTIVE_ORDERS)} lệnh...")
     
-    for order_id, order_info in ACTIVE_ORDERS.items():
+    # Tạo bản sao để tránh lỗi "dictionary changed size during iteration"
+    active_orders_copy = dict(ACTIVE_ORDERS)
+    
+    for order_id, order_info in active_orders_copy.items():
         try:
             status = check_order_status(order_id, order_info['symbol'])
             if status:
