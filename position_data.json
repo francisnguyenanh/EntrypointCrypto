@@ -1,2 +1,34 @@
 {
+  "ADA": {
+    "symbol": "ADA/JPY",
+    "total_quantity": 7.9,
+    "total_cost": 860.705,
+    "average_price": 108.95,
+    "buy_orders": [
+      {
+        "quantity": 7.9,
+        "price": 108.95,
+        "timestamp": "2025-08-01T21:38:48.806951",
+        "order_id": "140057285"
+      }
+    ],
+    "created_at": "2025-08-01T21:38:48.806931",
+    "updated_at": "2025-08-01T21:38:48.806944"
+  },
+  "XRP": {
+    "symbol": "XRP/JPY",
+    "total_quantity": 1.0,
+    "total_cost": 447.08,
+    "average_price": 447.08,
+    "buy_orders": [
+      {
+        "quantity": 1.0,
+        "price": 447.08,
+        "timestamp": "2025-08-01T21:39:07.318923",
+        "order_id": "284662806"
+      }
+    ],
+    "created_at": "2025-08-01T21:39:07.318899",
+    "updated_at": "2025-08-01T21:39:07.318914"
+  }
 }
