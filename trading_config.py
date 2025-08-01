@@ -65,7 +65,7 @@ TRADING_CONFIG = {
     'error_sleep_interval': 1800,  # Thời gian sleep khi lỗi (1 phút)
     
     # Bot operation mode
-    'continuous_monitoring': True,  # True: tự động lặp kiểm tra + trading, False: chỉ chạy 1 lần khi user khởi động
+    'continuous_monitoring': False,  # True: tự động lặp kiểm tra + trading, False: chỉ chạy 1 lần khi user khởi động
     # continuous_monitoring = True:  Bot tự động lặp: Kiểm tra lệnh bán -> Phân tích thị trường -> Đặt lệnh mua -> Sleep order_monitor_interval -> Lặp lại
     # continuous_monitoring = False: Bot chỉ chạy 1 lần: Kiểm tra lệnh bán -> Phân tích thị trường -> Đặt lệnh -> Dừng (user phải khởi động lại để chạy tiếp)
     

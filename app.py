@@ -1554,44 +1554,148 @@ def analyze_order_book(order_book):
 def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df):
     """
     Phân tích cơ hội giao dịch dựa trên sổ lệnh khi không có tín hiệu kỹ thuật rõ ràng
+    Bổ sung logic bảo vệ tài khoản khi downtrend
     """
     if not order_book_analysis:
         return None
+    
+    # ===== KIỂM TRA DOWNTREND VÀ BẢO VỆ TÀI KHOẢN =====
+    downtrend_detected = False
+    downtrend_strength = "NONE"
+    downtrend_reasons = []
+    
+    if len(df) >= 20:  # Cần đủ dữ liệu để phân tích trend
+        # Tính các chỉ báo kỹ thuật để xác định trend
+        df_temp = df.copy()
+        df_temp['SMA_10'] = SMAIndicator(df_temp['close'], window=10).sma_indicator()
+        df_temp['SMA_20'] = SMAIndicator(df_temp['close'], window=20).sma_indicator()
+        df_temp['RSI'] = RSIIndicator(df_temp['close'], window=14).rsi()
+        
+        latest = df_temp.iloc[-1]
+        prev_5 = df_temp.iloc[-5]  # 5 candles trước
+        
+        # 1. Kiểm tra SMA trend
+        if latest['SMA_10'] < latest['SMA_20']:
+            downtrend_detected = True
+            downtrend_reasons.append("SMA_10 < SMA_20")
+        
+        # 2. Kiểm tra giá giảm liên tục
+        recent_closes = df_temp['close'].tail(5).values
+        if len(recent_closes) >= 3:
+            declining_candles = sum(1 for i in range(1, len(recent_closes)) if recent_closes[i] < recent_closes[i-1])
+            if declining_candles >= 3:  # 3/4 candles giảm
+                downtrend_detected = True
+                downtrend_reasons.append(f"{declining_candles}/4 candles giảm")
+        
+        # 3. Kiểm tra RSI oversold nhưng chưa có dấu hiệu phục hồi
+        if latest['RSI'] < 35 and latest['RSI'] < prev_5['RSI']:  # RSI giảm tiếp
+            downtrend_detected = True
+            downtrend_reasons.append(f"RSI oversold và giảm tiếp ({latest['RSI']:.1f})")
+        
+        # 4. Kiểm tra volume pattern (volume tăng khi giá giảm)
+        recent_volume = df_temp['volume'].tail(3).mean()
+        prev_volume = df_temp['volume'].tail(10).head(7).mean()  # Volume trung bình trước đó
+        price_change = (current_price - prev_5['close']) / prev_5['close'] * 100
+        
+        if recent_volume > prev_volume * 1.2 and price_change < -2:  # Volume tăng + giá giảm > 2%
+            downtrend_detected = True
+            downtrend_reasons.append("Volume tăng khi giá giảm")
+        
+        # 5. Xác định cường độ downtrend
+        if len(downtrend_reasons) >= 3:
+            downtrend_strength = "STRONG"
+        elif len(downtrend_reasons) >= 2:
+            downtrend_strength = "MODERATE" 
+        elif len(downtrend_reasons) >= 1:
+            downtrend_strength = "WEAK"
     
     opportunity = {
         'coin': symbol.replace('/JPY', ''),
         'current_price': current_price,
         'analysis_type': 'ORDER_BOOK_BASED',
-        'confidence': 'LOW_TO_MEDIUM'
+        'confidence': 'LOW_TO_MEDIUM',
+        'downtrend_detected': downtrend_detected,
+        'downtrend_strength': downtrend_strength,
+        'downtrend_reasons': downtrend_reasons
     }
     
-    # Phân tích xu hướng từ bid/ask ratio
+    
+    # ===== LOGIC BẢO VỆ TÀI KHOẢN KHI DOWNTREND =====
+    if downtrend_detected:
+        print(f"⚠️ CẢNH BÁO DOWNTREND cho {symbol}:")
+        print(f"   🔻 Cường độ: {downtrend_strength}")
+        print(f"   📋 Lý do: {', '.join(downtrend_reasons)}")
+        
+        # Từ chối hoàn toàn nếu downtrend mạnh
+        if downtrend_strength == "STRONG":
+            print(f"❌ TỪ CHỐI trading {symbol} - Downtrend quá mạnh!")
+            return None
+        
+        # Giảm confidence score cho downtrend vừa và yếu
+        confidence_penalty = 40 if downtrend_strength == "MODERATE" else 20
+        print(f"📉 Giảm confidence {confidence_penalty} điểm do downtrend")
+    else:
+        confidence_penalty = 0
+    
+    # Phân tích xu hướng từ bid/ask ratio với điều chỉnh downtrend
     if order_book_analysis['bid_ask_ratio'] > 1.5:
         # Nhiều bid hơn ask - có thể xu hướng tăng
-        opportunity['trend_signal'] = 'BULLISH'
-        opportunity['reason'] = f"Bid/Ask ratio cao ({order_book_analysis['bid_ask_ratio']:.2f}) - áp lực mua mạnh"
+        if downtrend_detected:
+            # Trong downtrend, cần bid/ask ratio cao hơn để tin tưởng
+            if order_book_analysis['bid_ask_ratio'] < 2.0:
+                print(f"⚠️ Bid/Ask ratio không đủ mạnh trong downtrend ({order_book_analysis['bid_ask_ratio']:.2f} < 2.0)")
+                return None
+            
+            opportunity['trend_signal'] = 'BULLISH_BUT_CAUTIOUS'
+            opportunity['reason'] = f"Bid/Ask ratio cao ({order_book_analysis['bid_ask_ratio']:.2f}) nhưng trong downtrend - thận trọng"
+        else:
+            opportunity['trend_signal'] = 'BULLISH'
+            opportunity['reason'] = f"Bid/Ask ratio cao ({order_book_analysis['bid_ask_ratio']:.2f}) - áp lực mua mạnh"
         
-        # Mức giá vào lệnh: gần best ask nhưng có buffer
-        entry_price = order_book_analysis['best_ask'] * 1.0005  # +0.05% buffer
+        # Mức giá vào lệnh: conservative hơn trong downtrend
+        if downtrend_detected:
+            entry_price = order_book_analysis['best_ask'] * 1.002  # +0.2% buffer, cao hơn bình thường
+        else:
+            entry_price = order_book_analysis['best_ask'] * 1.0005  # +0.05% buffer
         
-        # Take profit levels dựa trên resistance và volume wall
+        # Take profit levels dựa trên resistance và volume wall - conservative trong downtrend
         if order_book_analysis['ask_wall_price'] > entry_price:
             # Có volume wall phía trên
-            tp1_price = order_book_analysis['ask_wall_price'] * 0.995  # Trước wall 0.5%
-            tp2_price = order_book_analysis['resistance_levels'][0] if order_book_analysis['resistance_levels'] else entry_price * 1.01
+            if downtrend_detected:
+                tp1_price = order_book_analysis['ask_wall_price'] * 0.992  # Trước wall 0.8%, conservative hơn
+                tp2_price = order_book_analysis['resistance_levels'][0] * 0.995 if order_book_analysis['resistance_levels'] else entry_price * 1.008
+            else:
+                tp1_price = order_book_analysis['ask_wall_price'] * 0.995  # Trước wall 0.5%
+                tp2_price = order_book_analysis['resistance_levels'][0] if order_book_analysis['resistance_levels'] else entry_price * 1.01
         else:
-            # Không có wall gần, dùng % cố định
-            tp1_price = entry_price * 1.005  # +0.5%
-            tp2_price = entry_price * 1.01   # +1.0%
+            # Không có wall gần, dùng % cố định - conservative trong downtrend
+            if downtrend_detected:
+                tp1_price = entry_price * 1.003  # +0.3%, thấp hơn
+                tp2_price = entry_price * 1.006  # +0.6%, thấp hơn
+            else:
+                tp1_price = entry_price * 1.005  # +0.5%
+                tp2_price = entry_price * 1.01   # +1.0%
         
-        # Stop loss: dưới volume weighted bid hoặc support gần nhất
-        stop_loss = min(
-            order_book_analysis['volume_weighted_bid'] * 0.998,
-            order_book_analysis['support_levels'][0] * 0.998 if order_book_analysis['support_levels'] else entry_price * 0.995
-        )
+        # Stop loss: chặt hơn trong downtrend
+        if downtrend_detected:
+            # Stop loss chặt hơn trong downtrend
+            stop_loss = min(
+                order_book_analysis['volume_weighted_bid'] * 0.995,  # Chặt hơn
+                order_book_analysis['support_levels'][0] * 0.995 if order_book_analysis['support_levels'] else entry_price * 0.992
+            )
+        else:
+            stop_loss = min(
+                order_book_analysis['volume_weighted_bid'] * 0.998,
+                order_book_analysis['support_levels'][0] * 0.998 if order_book_analysis['support_levels'] else entry_price * 0.995
+            )
         
     elif order_book_analysis['bid_ask_ratio'] < 0.7:
-        # Nhiều ask hơn bid - có thể xu hướng giảm, tìm cơ hội mua đáy
+        # Nhiều ask hơn bid - có thể xu hướng giảm
+        if downtrend_detected:
+            print(f"❌ TỪ CHỐI trading {symbol} - Cả order book và technical đều bearish!")
+            return None  # Từ chối hoàn toàn khi cả 2 đều bearish
+        
+        # Chỉ trade khi không có downtrend technical
         opportunity['trend_signal'] = 'BEARISH_TO_BULLISH'
         opportunity['reason'] = f"Bid/Ask ratio thấp ({order_book_analysis['bid_ask_ratio']:.2f}) - có thể oversold"
         
@@ -1606,7 +1710,11 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
         stop_loss = entry_price * 0.997  # -0.3%
         
     else:
-        # Cân bằng - tìm cơ hội scalping
+        # Cân bằng - trong downtrend thì skip, không downtrend thì scalp
+        if downtrend_detected:
+            print(f"⚠️ SKIP trading {symbol} - Thị trường cân bằng trong downtrend, rủi ro cao")
+            return None
+        
         opportunity['trend_signal'] = 'NEUTRAL_SCALPING'
         opportunity['reason'] = f"Thị trường cân bằng - cơ hội scalping trong spread"
         
@@ -1621,12 +1729,12 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
         # Stop loss gần bid
         stop_loss = order_book_analysis['best_bid'] * 1.0005
     
-    # Tính toán risk/reward và volume analysis
+    # Tính toán risk/reward và volume analysis với điều chỉnh downtrend
     risk_percent = (entry_price - stop_loss) / entry_price * 100
     reward_percent = (tp1_price - entry_price) / entry_price * 100
     risk_reward_ratio = reward_percent / risk_percent if risk_percent > 0 else 0
     
-    # Đánh giá độ tin cậy dựa trên volume và spread
+    # Đánh giá độ tin cậy dựa trên volume và spread - điều chỉnh cho downtrend
     confidence_score = 0
     if order_book_analysis['spread'] < 0.1:  # Spread thấp
         confidence_score += 25
@@ -1636,6 +1744,16 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
         confidence_score += 25
     if risk_reward_ratio > 1:  # Risk/reward tốt
         confidence_score += 25
+    
+    # Áp dụng penalty do downtrend
+    confidence_score = max(0, confidence_score - confidence_penalty)
+    
+    # Thêm yêu cầu confidence cao hơn trong downtrend
+    min_confidence_required = 70 if downtrend_detected else 50
+    
+    if confidence_score < min_confidence_required:
+        print(f"❌ Confidence score quá thấp: {confidence_score} < {min_confidence_required} (cần thiết {'trong downtrend' if downtrend_detected else 'bình thường'})")
+        return None
     
     opportunity.update({
         'optimal_entry': entry_price,  # Key chính xác cho trading
@@ -1649,8 +1767,19 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
         'confidence_score': confidence_score,
         'spread': order_book_analysis['spread'],
         'bid_ask_ratio': order_book_analysis['bid_ask_ratio'],
-        'total_volume': order_book_analysis['total_bid_volume'] + order_book_analysis['total_ask_volume']
+        'total_volume': order_book_analysis['total_bid_volume'] + order_book_analysis['total_ask_volume'],
+        'min_confidence_required': min_confidence_required,
+        'confidence_penalty': confidence_penalty
     })
+    
+    # Log thông tin bảo vệ downtrend
+    if downtrend_detected:
+        print(f"✅ CHẤP NHẬN trading {symbol} với biện pháp bảo vệ:")
+        print(f"   🎯 Entry: ¥{entry_price:.4f} (buffer cao hơn)")
+        print(f"   🛡️ Stop Loss: ¥{stop_loss:.4f} (chặt hơn: {risk_percent:.2f}%)")
+        print(f"   💰 Take Profit: ¥{tp1_price:.4f} (thấp hơn: {reward_percent:.2f}%)")
+        print(f"   📊 Confidence: {confidence_score}/100 (đã giảm {confidence_penalty} điểm)")
+        print(f"   ⚖️ Risk/Reward: {risk_reward_ratio:.2f}")
     
     return opportunity
 
