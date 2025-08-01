@@ -20,11 +20,19 @@ Deploy Crypto Trading Bot lên Google Cloud Functions với:
 ### 1.1 Tạo Project
 1. Truy cập [Google Cloud Console](https://console.cloud.google.com/)
 2. Tạo project mới: `crypto-trading-bot`
-3. Enable APIs:
-   - Cloud Functions API
-   - Cloud Scheduler API  
-   - Firestore API
-   - Cloud Build API
+3. **Enable APIs (QUAN TRỌNG - Phải làm trước):**
+   - Vào **APIs & Services** → **Library**
+   - Tìm và enable từng API sau:
+     - **Cloud Functions API** ← Bắt buộc
+     - **Cloud Build API** ← Bắt buộc  
+     - **Cloud Scheduler API**
+     - **Firestore API**
+   - Mỗi API click **ENABLE** và đợi kích hoạt xong
+
+### 1.1.1 Setup Billing (Bắt buộc)
+1. Vào **Billing** → **Link a billing account**
+2. Thêm credit card (Google sẽ không charge nếu trong free tier)
+3. Verify billing account active
 
 ### 1.2 Setup Firestore
 1. Vào **Firestore** → **Create database**
@@ -73,6 +81,7 @@ EMAIL_RECIPIENT: "recipient@gmail.com"
 
 1. **Vào Cloud Functions Console**
    - Truy cập: https://console.cloud.google.com/functions
+   - **QUAN TRỌNG**: Đảm bảo bạn vào **Cloud Functions**, KHÔNG phải Cloud Run
    - Chọn project của bạn
    - Click **CREATE FUNCTION**
 
