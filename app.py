@@ -498,7 +498,10 @@ def monitor_active_orders():
             
             orders_to_remove = []
             
-            for order_id, order_info in ACTIVE_ORDERS.items():
+            # Tạo copy của dictionary để tránh lỗi "dictionary changed size during iteration"
+            active_orders_copy = dict(ACTIVE_ORDERS)
+            
+            for order_id, order_info in active_orders_copy.items():
                 try:
                     # Kiểm tra trạng thái lệnh
                     current_status = check_order_status(order_id, order_info['symbol'])
@@ -547,7 +550,7 @@ def monitor_active_orders():
                     
                     elif current_status['filled'] > order_info.get('last_filled', 0):
                         # Lệnh khớp một phần
-                        order_info['last_filled'] = current_status['filled']
+                        ACTIVE_ORDERS[order_id]['last_filled'] = current_status['filled']
                         print(f" Lệnh {order_id} khớp một phần: {current_status['filled']:.6f}/{current_status['amount']:.6f}")
                 
                 except Exception as e:

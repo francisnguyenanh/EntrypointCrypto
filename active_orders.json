@@ -1,2 +1,34 @@
 {
+  "284690320": {
+    "symbol": "XRP/JPY",
+    "order_type": "STOP_LOSS",
+    "buy_price": 446.3,
+    "added_time": 1754053262.596551,
+    "last_checked": 1754053262.666293,
+    "last_filled": 0
+  },
+  "284690321": {
+    "symbol": "XRP/JPY",
+    "order_type": "TAKE_PROFIT_1",
+    "buy_price": 446.3,
+    "added_time": 1754053262.631117,
+    "last_checked": 1754053262.631117,
+    "last_filled": 0
+  },
+  "140069665": {
+    "symbol": "ADA/JPY",
+    "order_type": "STOP_LOSS",
+    "buy_price": 108.52738095238095,
+    "added_time": 1754053319.927936,
+    "last_checked": 1754053319.927936,
+    "last_filled": 0
+  },
+  "140069667": {
+    "symbol": "ADA/JPY",
+    "order_type": "TAKE_PROFIT_1",
+    "buy_price": 108.52738095238095,
+    "added_time": 1754053319.957712,
+    "last_checked": 1754053319.957712,
+    "last_filled": 0
+  }
 }
