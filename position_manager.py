@@ -21,6 +21,13 @@ class PositionManager:
                 with open(self.file_path, 'r', encoding='utf-8') as f:
                     self.positions = json.load(f)
                 print(f"📂 Đã tải {len(self.positions)} position từ {self.file_path}")
+                
+                # Kiểm tra kích thước file và tự động maintenance nếu cần
+                file_size_kb = os.path.getsize(self.file_path) / 1024
+                if file_size_kb > 50:  # Nếu file > 50KB thì cleanup
+                    print(f"⚠️ File position lớn ({file_size_kb:.1f} KB) - Chạy auto maintenance...")
+                    self.auto_maintenance()
+                
             else:
                 self.positions = {}
                 self.save_positions()
@@ -82,14 +89,20 @@ class PositionManager:
                 current_pos['average_price'] = new_average_price
                 current_pos['updated_at'] = datetime.now().isoformat()
             
-            # Lưu thông tin lệnh mua
+            # Lưu thông tin lệnh mua (CHỈ GIỮ 10 LỆNH GẦN NHẤT)
             buy_order_info = {
                 'quantity': quantity,
                 'price': price,
                 'timestamp': datetime.now().isoformat(),
                 'order_id': order_id
             }
+            
+            # Thêm lệnh mới và giữ tối đa 10 lệnh gần nhất
             self.positions[coin]['buy_orders'].append(buy_order_info)
+            if len(self.positions[coin]['buy_orders']) > 10:
+                # Xóa lệnh cũ nhất, giữ 10 lệnh mới nhất
+                self.positions[coin]['buy_orders'] = self.positions[coin]['buy_orders'][-10:]
+                print(f"🧹 Đã cleanup buy_orders cũ cho {coin}, giữ 10 lệnh mới nhất")
             
             # Lưu vào file
             self.save_positions()
@@ -99,6 +112,7 @@ class PositionManager:
             print(f"   💰 Giá trung bình: ¥{position_info['average_price']:.4f}")
             print(f"   📦 Tổng quantity: {position_info['total_quantity']:.6f}")
             print(f"   💸 Tổng chi phí: ¥{position_info['total_cost']:.2f}")
+            print(f"   📋 Buy orders lưu trữ: {len(position_info['buy_orders'])}")
             
             return position_info
             
@@ -212,6 +226,120 @@ class PositionManager:
             print(f"❌ Lỗi tính SL/TP: {e}")
             return None
     
+    def calculate_pnl(self, symbol, quantity, current_price):
+        """
+        Tính P&L cho một lượng coin với giá hiện tại
+        
+        Args:
+            symbol: Symbol coin
+            quantity: Số lượng coin để tính P&L
+            current_price: Giá hiện tại
+        
+        Returns:
+            dict: Thông tin P&L
+        """
+        try:
+            position = self.get_position(symbol)
+            if not position:
+                return None
+            
+            if quantity > position['total_quantity']:
+                quantity = position['total_quantity']
+            
+            avg_entry_price = position['average_price']
+            
+            # Tính chi phí mua
+            cost_basis = quantity * avg_entry_price
+            
+            # Tính giá trị hiện tại (trừ phí giao dịch)
+            trading_fee = 0.001  # 0.1% fee
+            current_value = quantity * current_price * (1 - trading_fee)
+            
+            # P&L
+            profit_loss = current_value - cost_basis
+            profit_loss_percent = (profit_loss / cost_basis) * 100 if cost_basis > 0 else 0
+            
+            return {
+                'symbol': symbol,
+                'quantity': quantity,
+                'avg_entry_price': avg_entry_price,
+                'current_price': current_price,
+                'cost_basis': cost_basis,
+                'current_value': current_value,
+                'profit_loss': profit_loss,
+                'profit_loss_percent': profit_loss_percent,
+                'trading_fee': quantity * current_price * trading_fee
+            }
+            
+        except Exception as e:
+            print(f"❌ Lỗi tính P&L: {e}")
+            return None
+
+    def update_position_after_sell(self, symbol, quantity_sold, sell_price):
+        """
+        Cập nhật position sau khi bán coin (FIFO - First In First Out)
+        
+        Args:
+            symbol: Symbol coin
+            quantity_sold: Số lượng đã bán
+            sell_price: Giá bán
+        """
+        try:
+            coin = symbol.split('/')[0]
+            if coin not in self.positions:
+                print(f"❌ Không tìm thấy position cho {coin}")
+                return False
+            
+            position = self.positions[coin]
+            remaining_to_sell = quantity_sold
+            
+            # FIFO: Bán từ buy order cũ nhất trước
+            updated_buy_orders = []
+            
+            for buy_order in position['buy_orders']:
+                if remaining_to_sell <= 0:
+                    updated_buy_orders.append(buy_order)
+                    continue
+                
+                if buy_order['quantity'] <= remaining_to_sell:
+                    # Bán hết order này
+                    remaining_to_sell -= buy_order['quantity']
+                else:
+                    # Bán một phần order này
+                    buy_order['quantity'] -= remaining_to_sell
+                    buy_order['total_cost'] = buy_order['quantity'] * buy_order['price']
+                    updated_buy_orders.append(buy_order)
+                    remaining_to_sell = 0
+            
+            # Cập nhật position
+            position['buy_orders'] = updated_buy_orders
+            
+            # Tính lại totals
+            total_quantity = sum(order['quantity'] for order in updated_buy_orders)
+            total_cost = sum(order['quantity'] * order['price'] for order in updated_buy_orders)
+            
+            if total_quantity > 0:
+                position['total_quantity'] = total_quantity
+                position['total_cost'] = total_cost
+                position['average_price'] = total_cost / total_quantity
+                
+                print(f"📊 Cập nhật {coin} sau khi bán:")
+                print(f"   📤 Đã bán: {quantity_sold:.6f} @ ¥{sell_price:.4f}")
+                print(f"   📦 Còn lại: {total_quantity:.6f}")
+                print(f"   💰 Giá TB: ¥{position['average_price']:.4f}")
+            else:
+                # Xóa position nếu bán hết
+                del self.positions[coin]
+                print(f"✅ Đã bán hết {coin}, xóa position")
+            
+            # Lưu file
+            self.save_positions()
+            return True
+            
+        except Exception as e:
+            print(f"❌ Lỗi cập nhật position sau khi bán: {e}")
+            return False
+
     def get_all_positions(self):
         """Lấy tất cả positions hiện có"""
         return self.positions
@@ -232,6 +360,139 @@ class PositionManager:
         summary += f"💸 Tổng giá trị: ¥{total_value:.2f}"
         return summary
     
+    def cleanup_old_positions(self, days=30):
+        """Dọn dẹp positions cũ không hoạt động"""
+        try:
+            current_time = datetime.now()
+            positions_to_remove = []
+            
+            for coin, pos in self.positions.items():
+                updated_at = datetime.fromisoformat(pos['updated_at'])
+                days_diff = (current_time - updated_at).days
+                
+                if days_diff > days:
+                    positions_to_remove.append(coin)
+            
+            for coin in positions_to_remove:
+                self.positions.pop(coin)
+                print(f"🗑️ Dọn dẹp position cũ: {coin}")
+            
+            if positions_to_remove:
+                self.save_positions()
+                return len(positions_to_remove)
+            
+            return 0
+            
+        except Exception as e:
+            print(f"⚠️ Lỗi dọn dẹp positions: {e}")
+            return 0
+    
+    def optimize_file_size(self):
+        """Tối ưu hóa kích thước file position_data.json"""
+        try:
+            optimized_count = 0
+            
+            for coin, pos in self.positions.items():
+                # Giữ tối đa 5 buy orders gần nhất cho mỗi position
+                if len(pos['buy_orders']) > 5:
+                    old_count = len(pos['buy_orders'])
+                    pos['buy_orders'] = pos['buy_orders'][-5:]  # Giữ 5 lệnh mới nhất
+                    optimized_count += old_count - 5
+                    print(f"🧹 Tối ưu {coin}: {old_count} → 5 buy orders")
+            
+            if optimized_count > 0:
+                self.save_positions()
+                print(f"✅ Đã tối ưu {optimized_count} buy orders cũ")
+                
+                # Kiểm tra kích thước file
+                if os.path.exists(self.file_path):
+                    file_size_kb = os.path.getsize(self.file_path) / 1024
+                    print(f"📁 Kích thước file sau tối ưu: {file_size_kb:.1f} KB")
+            
+            return optimized_count
+            
+        except Exception as e:
+            print(f"⚠️ Lỗi tối ưu file: {e}")
+            return 0
+    
+    def get_file_stats(self):
+        """Lấy thống kê về file position_data.json"""
+        try:
+            stats = {
+                'exists': os.path.exists(self.file_path),
+                'size_kb': 0,
+                'total_positions': len(self.positions),
+                'total_buy_orders': 0,
+                'oldest_position': None,
+                'newest_position': None
+            }
+            
+            if stats['exists']:
+                stats['size_kb'] = os.path.getsize(self.file_path) / 1024
+            
+            # Đếm tổng số buy orders
+            oldest_date = None
+            newest_date = None
+            
+            for coin, pos in self.positions.items():
+                stats['total_buy_orders'] += len(pos['buy_orders'])
+                
+                # Tìm position cũ nhất và mới nhất
+                created_at = datetime.fromisoformat(pos['created_at'])
+                if oldest_date is None or created_at < oldest_date:
+                    oldest_date = created_at
+                    stats['oldest_position'] = coin
+                
+                updated_at = datetime.fromisoformat(pos['updated_at'])
+                if newest_date is None or updated_at > newest_date:
+                    newest_date = updated_at
+                    stats['newest_position'] = coin
+            
+            return stats
+            
+        except Exception as e:
+            print(f"⚠️ Lỗi lấy file stats: {e}")
+            return None
+    
+    def auto_maintenance(self):
+        """Tự động bảo trì file position_data.json"""
+        try:
+            print("🔧 Bắt đầu auto maintenance...")
+            
+            # 1. Lấy thống kê trước khi cleanup
+            stats_before = self.get_file_stats()
+            if stats_before:
+                print(f"📊 Trước cleanup:")
+                print(f"   📁 File size: {stats_before['size_kb']:.1f} KB")
+                print(f"   📦 Positions: {stats_before['total_positions']}")
+                print(f"   📋 Buy orders: {stats_before['total_buy_orders']}")
+            
+            # 2. Dọn dẹp positions cũ (30 ngày)
+            cleaned_positions = self.cleanup_old_positions(30)
+            
+            # 3. Tối ưu hóa buy orders
+            optimized_orders = self.optimize_file_size()
+            
+            # 4. Thống kê sau cleanup
+            stats_after = self.get_file_stats()
+            if stats_after:
+                print(f"📊 Sau cleanup:")
+                print(f"   📁 File size: {stats_after['size_kb']:.1f} KB")
+                print(f"   📦 Positions: {stats_after['total_positions']}")
+                print(f"   📋 Buy orders: {stats_after['total_buy_orders']}")
+                
+                if stats_before:
+                    size_saved = stats_before['size_kb'] - stats_after['size_kb']
+                    if size_saved > 0:
+                        print(f"💾 Tiết kiệm: {size_saved:.1f} KB")
+            
+            print(f"✅ Auto maintenance hoàn thành!")
+            print(f"   🗑️ Xóa {cleaned_positions} positions cũ")
+            print(f"   🧹 Tối ưu {optimized_orders} buy orders")
+            
+        except Exception as e:
+            print(f"❌ Lỗi auto maintenance: {e}")
+
     def cleanup_old_positions(self, days=30):
         """Dọn dẹp positions cũ không hoạt động"""
         try:

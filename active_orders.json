@@ -1,1 +1,34 @@
-{}
+{
+  "140045935": {
+    "symbol": "ADA/JPY",
+    "order_type": "STOP_LOSS",
+    "buy_price": 109.39,
+    "added_time": 1754050959.876211,
+    "last_checked": 1754050959.942462,
+    "last_filled": 0
+  },
+  "140045936": {
+    "symbol": "ADA/JPY",
+    "order_type": "TAKE_PROFIT_1",
+    "buy_price": 109.39,
+    "added_time": 1754050959.9014342,
+    "last_checked": 1754050959.9014342,
+    "last_filled": 0
+  },
+  "38977361": {
+    "symbol": "XLM/JPY",
+    "order_type": "STOP_LOSS",
+    "buy_price": 59.23,
+    "added_time": 1754050977.887106,
+    "last_checked": 1754050977.887106,
+    "last_filled": 0
+  },
+  "38977362": {
+    "symbol": "XLM/JPY",
+    "order_type": "TAKE_PROFIT_1",
+    "buy_price": 59.23,
+    "added_time": 1754050977.9148228,
+    "last_checked": 1754050977.914824,
+    "last_filled": 0
+  }
+}
