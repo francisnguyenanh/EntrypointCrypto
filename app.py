@@ -992,93 +992,82 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
             print(f"⚠️ Không thể kiểm tra số dư: {balance_error}")
             available_coin = actual_quantity * 0.95  # Fallback: giữ 5% buffer
         
-        # Thử đặt OCO order trước (nếu được bật)
-        if TRADING_CONFIG['use_oco_orders']:
-            try:
-                oco_order = binance.create_order(
-                    symbol=trading_symbol,
-                    type='OCO',
-                    side='sell',
-                    amount=actual_quantity * 0.95,  # 95% cho OCO
-                    price=tp_price,  # Take profit price
-                    params={
-                        'stopPrice': stop_loss,  # Stop loss trigger price
-                        'stopLimitPrice': stop_loss * (1 - TRADING_CONFIG['stop_loss_buffer']),
-                        'stopLimitTimeInForce': 'GTC'
-                    }
-                )
-                orders_placed.append(oco_order)
-                oco_success = True
-                print(f"✅ OCO: SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f}")
-                
-                # Thêm OCO order vào danh sách theo dõi (silent)
-                add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
-                
-            except Exception as oco_error:
-                pass  # Chuyển sang đặt lệnh riêng lẻ
+        # Thử đặt OCO order trước (ưu tiên cao vì giải quyết vấn đề insufficient balance)
+        print("🔄 Đang thử OCO order (One-Cancels-Other)...")
         
-        # Nếu OCO thất bại hoặc không được bật, đặt lệnh riêng lẻ
+        try:
+            # Sử dụng 95% coin cho OCO
+            oco_quantity = available_coin * 0.95
+            
+            oco_order = binance.create_order(
+                symbol=trading_symbol,
+                type='OCO',
+                side='sell',
+                amount=oco_quantity,
+                price=tp_price,  # Take profit price
+                params={
+                    'stopPrice': stop_loss,  # Stop loss trigger price
+                    'stopLimitPrice': stop_loss * (1 - TRADING_CONFIG.get('stop_loss_buffer', 0.001)),
+                    'stopLimitTimeInForce': 'GTC'
+                }
+            )
+            orders_placed.append(oco_order)
+            oco_success = True
+            print(f"✅ OCO SUCCESS: SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f} (Quantity: {oco_quantity:.6f})")
+            print("💡 OCO đảm bảo chỉ 1 trong 2 lệnh sẽ execute, tránh insufficient balance")
+            
+            # Thêm OCO order vào danh sách theo dõi
+            add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
+            
+        except Exception as oco_error:
+            print(f"❌ OCO FAILED: {oco_error}")
+            print("⚠️ Chuyển sang phương án dự phòng: ưu tiên đặt Take Profit")
+            oco_success = False
+        
+        # Nếu OCO thất bại, đặt lệnh riêng lẻ (ưu tiên TP)
         if not oco_success:
-            # LOGIC ĐÚNG: SL và TP đều bán TẤT CẢ coin (1 TP system)
-            total_reserve = available_coin * 0.95  # Chỉ sử dụng 95% số dư để tránh lỗi
-            sl_quantity = total_reserve           # SL = 100% coin có sẵn
-            tp_quantity = total_reserve           # TP = 100% coin có sẵn (cùng số lượng)
+            # CHIẾN LƯỢC MỚI: Ưu tiên TAKE PROFIT để lấy lời, SL quản lý thủ công
+            # → Tích cực hơn: đảm bảo lấy lời khi có cơ hội
+            total_reserve = available_coin * 0.95  # 95% để tránh lỗi
             
-            print(f"📊 Lệnh bán ALL-IN: SL={sl_quantity:.6f} | TP={tp_quantity:.6f}")
-            print("💡 Cả SL và TP đều bán 100% coin - chỉ 1 trong 2 sẽ được kích hoạt")
+            print(f"💰 Chiến lược PROFIT-FIRST: ưu tiên đặt Take Profit")
+            print(f"📊 Coin khả dụng: {available_coin:.6f}")
+            print(f"🎯 Take Profit đảm bảo lấy lời 95% coin, SL quản lý thủ công")
             
-            # Kiểm tra giá trị minimum notional cho TP
-            min_notional = 5.0  # Binance minimum là 5 JPY
-            tp_notional = tp_quantity * tp_price
+            # Kiểm tra minimum notional cho TP
+            min_notional = 5.0
+            tp_notional = total_reserve * tp_price
             
-            # Nếu TP vẫn nhỏ hơn min_notional, gộp vào SL
             if tp_notional < min_notional:
-                print(f"⚠️ TP notional quá thấp ({tp_notional:.2f} < {min_notional}), chuyển vào SL")
-                sl_quantity = total_reserve  # All-in vào SL
-                tp_quantity = 0
+                print(f"❌ TP notional quá thấp ({tp_notional:.2f} < {min_notional})")
+                print("⚠️ Không đặt được lệnh bán - quản lý hoàn toàn thủ công")
+                total_reserve = 0
             
-            # 1. Đặt Stop Loss
-            try:
-                stop_order = binance.create_order(
-                    symbol=trading_symbol,
-                    type='STOP_LOSS_LIMIT',
-                    side='sell',
-                    amount=sl_quantity,
-                    price=stop_loss * (1 - TRADING_CONFIG.get('stop_loss_buffer', 0.001)),
-                    params={
-                        'stopPrice': stop_loss,
-                        'timeInForce': 'GTC'
-                    }
-                )
-                orders_placed.append(stop_order)
-                print(f"✅ SL: ¥{stop_loss:.2f} (Quantity: {sl_quantity:.6f})")
-                add_order_to_monitor(stop_order['id'], trading_symbol, "STOP_LOSS", actual_price)
-                
-            except Exception as sl_error:
-                print(f"❌ Lỗi đặt SL: {sl_error}")
-                print(f"  🔍 Chi tiết: Symbol={trading_symbol}, Quantity={sl_quantity:.6f}, Price=¥{stop_loss:.2f}")
-            
-            # 2. Đặt Take Profit (nếu có đủ notional)
-            if tp_quantity > 0:
+            # 1. Ưu tiên đặt Take Profit để đảm bảo lấy lời
+            if total_reserve > 0:
                 try:
-                    tp_notional_value = tp_quantity * tp_price
+                    # Đặt lệnh Take Profit (limit sell order) - PROFIT-FIRST strategy
+                    tp_order = binance.create_limit_sell_order(
+                        symbol=trading_symbol,
+                        amount=total_reserve,
+                        price=tp_price
+                    )
+                    orders_placed.append(tp_order)
+                    print(f"✅ TP: ¥{tp_price:.2f} (Quantity: {total_reserve:.6f})")
+                    add_order_to_monitor(tp_order['id'], trading_symbol, "TAKE_PROFIT", actual_price)
                     
-                    if tp_notional_value >= min_notional:
-                        tp_order = binance.create_limit_sell_order(
-                            trading_symbol, 
-                            tp_quantity,
-                            tp_price
-                        )
-                        orders_placed.append(tp_order)
-                        print(f"✅ TP: ¥{tp_price:.2f} (Quantity: {tp_quantity:.6f})")
-                        add_order_to_monitor(tp_order['id'], trading_symbol, "TAKE_PROFIT", actual_price)
-                    else:
-                        print(f"⚠️ TP bỏ qua: Giá trị ¥{tp_notional_value:.2f} < minimum ¥{min_notional}")
-                        print("� Chỉ có Stop Loss được đặt - quản lý TP thủ công")
+                    # Thông báo về SL thủ công
+                    print(f"🛡️ SL Target: ¥{stop_loss:.2f}")
+                    print(f"💡 Monitor giá và bán thủ công khi giá xuống dưới SL")
                     
                 except Exception as tp_error:
                     print(f"❌ Lỗi đặt TP: {tp_error}")
-                    print("⚠️ Chỉ có Stop Loss được đặt - quản lý TP thủ công")
+                    print(f"  🔍 Chi tiết: Symbol={trading_symbol}, Quantity={total_reserve:.6f}, Price=¥{tp_price:.2f}")
+            
+            # 2. SL không được đặt tự động để tránh insufficient balance
+            print(f"⚠️ Stop Loss không được đặt tự động")
+            print(f"📝 Lý do: Binance không cho phép 2 lệnh bán cùng số lượng coin")
+            print(f"🛡️ Giải pháp: Monitor giá thủ công, bán market khi giá xuống ¥{stop_loss:.2f}")
         
         # Kiểm tra số dư sau khi đặt lệnh
         final_balance = get_account_balance()
