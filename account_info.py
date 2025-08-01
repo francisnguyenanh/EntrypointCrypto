@@ -15,15 +15,11 @@ def get_account_info():
     try:
         binance = ccxt.binance(trading_config.BINANCE_CONFIG)
         
-        print("=" * 80)
-        print("💼 THÔNG TIN TÀI KHOẢN BINANCE")
-        print("=" * 80)
-        
         # Lấy balance
         balance = binance.fetch_balance()
         
         # Hiển thị số dư tiền tệ
-        print("💰 SỐ DƯ TIỀN TỆ:")
+        print("  SỐ DƯ TIỀN TỆ:")
         fiat_currencies = ['USDT', 'JPY', 'USD', 'EUR']
         total_fiat_value = 0
         
@@ -43,8 +39,6 @@ def get_account_info():
                 elif currency == 'JPY':
                     total_fiat_value += total_balance / 150  # Convert to USD
         
-        print(f"\n💵 TỔNG GIÁ TRỊ FIAT: ${total_fiat_value:,.2f}")
-        
         # Tính tổng giá trị crypto (không in chi tiết từng coin)
         total_crypto_value = 0
         for symbol, amounts in balance['total'].items():
@@ -62,14 +56,12 @@ def get_account_info():
                         total_crypto_value += value_usd
                     except:
                         pass
-        print(f"\n🪙 TỔNG GIÁ TRỊ CRYPTO: ${total_crypto_value:,.2f}")
         
         # Tổng tài khoản
         total_account_value = total_fiat_value + total_crypto_value
-        print(f"\n💎 TỔNG GIÁ TRỊ TÀI KHOẢN: ${total_account_value:,.2f}")
         
         # Kiểm tra orders đang mở
-        print("\n📋 ORDERS ĐANG MỞ:")
+        print("\n  ORDERS ĐANG MỞ:")
         try:
             # Tắt cảnh báo về fetchOpenOrders không có symbol
             binance.options["warnOnFetchOpenOrdersWithoutSymbol"] = False
@@ -78,8 +70,7 @@ def get_account_info():
                 print(f"   📊 Tổng cộng: {len(open_orders)} orders")
                 for order in open_orders:
                     print(f"   • {order['symbol']}: {order['side'].upper()} {order['amount']:.6f} @ {order['price']:.4f}")
-            else:
-                print("   ✅ Không có orders đang mở")
+
         except Exception as e:
             print(f"   ⚠️ Không thể lấy thông tin orders: {e}")
         
@@ -105,10 +96,6 @@ def test_email_notification():
             print("📧 Email notification đang TẮT")
             return False
         
-        print("📧 KIỂM TRA CẤU HÌNH EMAIL...")
-        print(f"   • SMTP Server: {config['email_smtp_server']}:{config['email_smtp_port']}")
-        print(f"   • Email gửi: {config['email_sender']}")
-        print(f"   • Email nhận: {config['email_recipient']}")
         
         # CHỈ test connection, KHÔNG gửi email
         try:
@@ -116,12 +103,6 @@ def test_email_notification():
             server.starttls()
             server.login(config['email_sender'], config['email_password'])
             server.quit()
-            
-            print("✅ Kết nối email thành công!")
-            print("📧 Email sẽ được gửi khi có sự kiện trading thực tế:")
-            print("   • Mua thành công")
-            print("   • Đặt lệnh bán thành công") 
-            print("   • Bán thành công")
             
             return True
             
@@ -131,16 +112,6 @@ def test_email_notification():
         
     except Exception as e:
         print(f"❌ Lỗi kiểm tra email: {e}")
-        
-        # Hướng dẫn sửa lỗi
-        print("\n💡 HƯỚNG DẪN SỬA LỖI:")
-        print("1. Kiểm tra App Password Gmail:")
-        print("   - Vào Google Account Settings")
-        print("   - Security > 2-Step Verification > App passwords") 
-        print("   - Tạo App Password mới cho 'Mail'")
-        print("   - Cập nhật vào trading_config.py")
-        print("\n2. Kiểm tra email settings trong trading_config.py")
-        print("3. Đảm bảo email_enabled = True")
         
         return False
 
@@ -217,7 +188,7 @@ def send_buy_success_notification(order_details):
 • Tổng tiền: ${order_details['total']:,.2f}
 • Order ID: {order_details.get('order_id', 'N/A')}
 
-💰 Thông tin tài khoản:
+  Thông tin tài khoản:
 • Số dư trước: ${order_details.get('balance_before', 'N/A') if isinstance(order_details.get('balance_before'), str) else f"{order_details.get('balance_before', 0):,.2f}"}
 • Số dư sau: ${order_details.get('balance_after', 'N/A') if isinstance(order_details.get('balance_after'), str) else f"{order_details.get('balance_after', 0):,.2f}"}
 
@@ -324,12 +295,12 @@ def send_sell_success_notification(order_details):
         msg = MIMEMultipart()
         msg['From'] = config['email_sender']
         msg['To'] = config['email_recipient']
-        msg['Subject'] = f"💰 BÁN THÀNH CÔNG - {order_details['symbol']}"
+        msg['Subject'] = f"  BÁN THÀNH CÔNG - {order_details['symbol']}"
         
         profit_emoji = "📈" if order_details.get('profit_amount', 0) > 0 else "📉"
         
         body = f"""
-💰 LỆNH BÁN THÀNH CÔNG
+  LỆNH BÁN THÀNH CÔNG
 
 📊 Chi tiết lệnh:
 • Symbol: {order_details['symbol']}
@@ -345,7 +316,7 @@ def send_sell_success_notification(order_details):
 • {profit_emoji} Lợi nhuận: ${order_details.get('profit_loss', 0):,.2f}
 • 📊 % Thay đổi: {order_details.get('profit_percent', 0):+.2f}%
 
-💰 Tài khoản:
+  Tài khoản:
 • Số dư sau bán: ${order_details.get('balance_after', 'N/A') if isinstance(order_details.get('balance_after'), str) else f"{order_details.get('balance_after', 0):,.2f}"}
 
 🔄 Bot sẽ tự động tìm cơ hội đầu tư tiếp theo...
