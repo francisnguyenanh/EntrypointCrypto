@@ -1,5 +1,0 @@
-{
-  "action": "get_account_info",
-  "test_mode": true,
-  "description": "Test account info retrieval - Lấy thông tin tài khoản"
-}

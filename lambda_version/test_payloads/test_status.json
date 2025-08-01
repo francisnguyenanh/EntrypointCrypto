@@ -1,5 +1,0 @@
-{
-  "action": "get_status",
-  "test_mode": true,
-  "description": "Test bot status - Kiểm tra trạng thái bot"
-}

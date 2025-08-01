@@ -1,5 +1,0 @@
-{
-  "emergency_debug": true,
-  "test_mode": true,
-  "description": "Emergency debug test - Kiểm tra layer mounting và imports"
-}
