@@ -447,8 +447,7 @@ def show_positions_summary():
                     print(f"      📦 Quantity: {pos['total_quantity']:.6f}")
                     print(f"      💰 Giá TB: ¥{pos['average_price']:.4f}")
                     print(f"      🛡️ SL: ¥{sl_tp_info['stop_loss']:.4f}")
-                    print(f"      🎯 TP1: ¥{sl_tp_info['tp1_price']:.4f}")
-                    print(f"      🎯 TP2: ¥{sl_tp_info['tp2_price']:.4f}")
+                    print(f"      🎯 TP: ¥{sl_tp_info['tp_price']:.4f}")
         
     except Exception as e:
         print(f"❌ Lỗi hiển thị positions: {e}")
@@ -850,8 +849,8 @@ def check_market_impact(symbol, quantity, order_book_analysis=None, side='buy'):
         return {"impact": "unknown", "warning": f"Error analyzing impact: {e}"}
 
 # Hàm đặt lệnh mua với stop loss và take profit
-def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_price, tp2_price):
-    """Đặt lệnh mua với stop loss và take profit tự động"""
+def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_price):
+    """Đặt lệnh mua với stop loss và take profit tự động - chỉ 1 TP"""
     try:
         # Trade trực tiếp JPY - đơn giản
         trading_symbol = symbol  # Sử dụng trực tiếp JPY pair
@@ -901,7 +900,7 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                 return {'status': 'failed', 'error': 'balance_check_error'}
         
         print(f"💰 Số dư: ¥{balance_check['current_balance']:,.2f}")
-        print(f"🎯 Đặt lệnh {trading_symbol}: Entry ¥{entry_price:.2f} | SL ¥{stop_loss:.2f} | TP1 ¥{tp1_price:.2f} | TP2 ¥{tp2_price:.2f}")
+        print(f"🎯 Đặt lệnh {trading_symbol}: Entry ¥{entry_price:.2f} | SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f}")
         
         # 1. Đặt lệnh mua market
         try:
@@ -927,11 +926,10 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                 if avg_based_prices:
                     # Sử dụng giá SL/TP từ position manager (dựa trên giá trung bình)
                     stop_loss = avg_based_prices['stop_loss']
-                    tp1_price = avg_based_prices['tp1_price'] 
-                    tp2_price = avg_based_prices['tp2_price']
+                    tp_price = avg_based_prices['tp1_price']  # Chỉ dùng TP1 làm TP duy nhất
                     
                     print(f"📊 SL/TP dựa trên giá TB ¥{avg_based_prices['average_entry']:.4f}:")
-                    print(f"   🛡️ SL: ¥{stop_loss:.4f} | 🎯 TP1: ¥{tp1_price:.4f} | 🎯 TP2: ¥{tp2_price:.4f}")
+                    print(f"   🛡️ SL: ¥{stop_loss:.4f} | 🎯 TP: ¥{tp_price:.4f}")
             
         except Exception as buy_error:
             error_str = str(buy_error).lower()
@@ -961,8 +959,7 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                 'balance_before': 'N/A',
                 'balance_after': 'N/A',
                 'stop_loss': stop_loss,
-                'tp1': tp1_price,
-                'tp2': tp2_price,
+                'tp': tp_price,  # Chỉ 1 TP
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
             
@@ -1002,8 +999,8 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                     symbol=trading_symbol,
                     type='OCO',
                     side='sell',
-                    amount=actual_quantity * 0.7,  # 70% cho OCO
-                    price=tp1_price,  # Take profit price
+                    amount=actual_quantity * 0.95,  # 95% cho OCO
+                    price=tp_price,  # Take profit price
                     params={
                         'stopPrice': stop_loss,  # Stop loss trigger price
                         'stopLimitPrice': stop_loss * (1 - TRADING_CONFIG['stop_loss_buffer']),
@@ -1012,7 +1009,7 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                 )
                 orders_placed.append(oco_order)
                 oco_success = True
-                print(f"✅ OCO: SL ¥{stop_loss:.2f} | TP ¥{tp1_price:.2f}")
+                print(f"✅ OCO: SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f}")
                 
                 # Thêm OCO order vào danh sách theo dõi (silent)
                 add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
@@ -1022,24 +1019,23 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
         
         # Nếu OCO thất bại hoặc không được bật, đặt lệnh riêng lẻ
         if not oco_success:
-            # PHÂN CHIA ĐƠN GIẢN: CHỈ SL + TP1 (tránh lỗi NOTIONAL)
+            # PHÂN CHIA ĐƠN GIẢN: CHỈ SL + TP (tránh lỗi NOTIONAL)
             total_reserve = available_coin * 0.95  # Chỉ sử dụng 95% số dư
             sl_quantity = total_reserve * 0.6      # 60% cho stop loss
-            tp1_quantity = total_reserve * 0.4     # 40% cho TP1
-            # Bỏ TP2 hoàn toàn để tránh lỗi NOTIONAL
+            tp_quantity = total_reserve * 0.4      # 40% cho TP
             
-            print(f"📊 Phân chia lệnh bán: SL={sl_quantity:.6f} | TP1={tp1_quantity:.6f}")
-            print("💡 Chỉ đặt TP1 để tránh lỗi NOTIONAL - đảm bảo lãi 0.5% sau phí")
+            print(f"📊 Phân chia lệnh bán: SL={sl_quantity:.6f} | TP={tp_quantity:.6f}")
+            print("💡 Chỉ đặt 1 TP để đảm bảo lãi sau phí")
             
-            # Kiểm tra giá trị minimum notional cho TP1
+            # Kiểm tra giá trị minimum notional cho TP
             min_notional = 5.0  # Binance minimum là 5 JPY
-            tp1_notional = tp1_quantity * tp1_price
+            tp_notional = tp_quantity * tp_price
             
-            # Nếu TP1 vẫn nhỏ hơn min_notional, gộp vào SL
-            if tp1_notional < min_notional:
-                print(f"⚠️ TP1 notional quá thấp ({tp1_notional:.2f} < {min_notional}), chuyển vào SL")
+            # Nếu TP vẫn nhỏ hơn min_notional, gộp vào SL
+            if tp_notional < min_notional:
+                print(f"⚠️ TP notional quá thấp ({tp_notional:.2f} < {min_notional}), chuyển vào SL")
                 sl_quantity = total_reserve  # All-in vào SL
-                tp1_quantity = 0
+                tp_quantity = 0
             
             # 1. Đặt Stop Loss
             try:
@@ -1062,26 +1058,26 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                 print(f"❌ Lỗi đặt SL: {sl_error}")
                 print(f"  🔍 Chi tiết: Symbol={trading_symbol}, Quantity={sl_quantity:.6f}, Price=¥{stop_loss:.2f}")
             
-            # 2. Đặt Take Profit 1 (nếu có đủ notional)
-            if tp1_quantity > 0:
+            # 2. Đặt Take Profit (nếu có đủ notional)
+            if tp_quantity > 0:
                 try:
-                    tp1_notional_value = tp1_quantity * tp1_price
+                    tp_notional_value = tp_quantity * tp_price
                     
-                    if tp1_notional_value >= min_notional:
-                        tp1_order = binance.create_limit_sell_order(
+                    if tp_notional_value >= min_notional:
+                        tp_order = binance.create_limit_sell_order(
                             trading_symbol, 
-                            tp1_quantity,
-                            tp1_price
+                            tp_quantity,
+                            tp_price
                         )
-                        orders_placed.append(tp1_order)
-                        print(f"✅ TP1: ¥{tp1_price:.2f} (Quantity: {tp1_quantity:.6f})")
-                        add_order_to_monitor(tp1_order['id'], trading_symbol, "TAKE_PROFIT_1", actual_price)
+                        orders_placed.append(tp_order)
+                        print(f"✅ TP: ¥{tp_price:.2f} (Quantity: {tp_quantity:.6f})")
+                        add_order_to_monitor(tp_order['id'], trading_symbol, "TAKE_PROFIT", actual_price)
                     else:
-                        print(f"⚠️ TP1 bỏ qua: Giá trị ¥{tp1_notional_value:.2f} < minimum ¥{min_notional}")
+                        print(f"⚠️ TP bỏ qua: Giá trị ¥{tp_notional_value:.2f} < minimum ¥{min_notional}")
                         print("� Chỉ có Stop Loss được đặt - quản lý TP thủ công")
                     
-                except Exception as tp1_error:
-                    print(f"❌ Lỗi đặt TP1: {tp1_error}")
+                except Exception as tp_error:
+                    print(f"❌ Lỗi đặt TP: {tp_error}")
                     print("⚠️ Chỉ có Stop Loss được đặt - quản lý TP thủ công")
         
         # Kiểm tra số dư sau khi đặt lệnh
@@ -1420,7 +1416,7 @@ def execute_auto_trading(recommendations):
             print(f"📈 Sử dụng tín hiệu tốt nhất: Confidence {coin_data.get('confidence_score', 0):.1f}")
             
             # Validation dữ liệu
-            required_keys = ['optimal_entry', 'stop_loss', 'tp1_price', 'tp2_price']
+            required_keys = ['optimal_entry', 'stop_loss', 'tp_price']
             missing_keys = [key for key in required_keys if key not in coin_data]
             
             if missing_keys:
@@ -1428,21 +1424,19 @@ def execute_auto_trading(recommendations):
                 # Tạo giá trị mặc định
                 entry_jpy = current_jpy_price
                 stop_loss_jpy = current_jpy_price * 0.97  # -3% stop loss
-                tp1_jpy = current_jpy_price * 1.02       # +2% take profit 1
-                tp2_jpy = current_jpy_price * 1.05       # +5% take profit 2
+                tp1_jpy = current_jpy_price * 1.02       # +2% take profit
                 print(f"⚠️ Sử dụng giá trị mặc định - Entry: ¥{entry_jpy:,.2f}, SL: ¥{stop_loss_jpy:,.2f}")
             else:
                 entry_jpy = coin_data['optimal_entry']
                 stop_loss_jpy = coin_data['stop_loss']
-                tp1_jpy = coin_data['tp1_price']
-                tp2_jpy = coin_data['tp2_price']
+                tp1_jpy = coin_data['tp_price']  # Chỉ còn 1 TP
             
             print(f"🎯 ALL-IN {jpy_symbol}: Entry ¥{entry_jpy:.2f} | Đầu tư ¥{investment_amount:,.2f}")
             
             # Execute all-in trade
             if current_jpy_balance >= investment_amount:
                 result = place_buy_order_with_sl_tp(
-                    jpy_symbol, quantity, entry_jpy, stop_loss_jpy, tp1_jpy, tp2_jpy
+                    jpy_symbol, quantity, entry_jpy, stop_loss_jpy, tp1_jpy
                 )
                 
                 if result['status'] == 'success':
@@ -1481,7 +1475,7 @@ def execute_auto_trading(recommendations):
                     quantity = investment_amount / current_jpy_price
                     
                     # Validation: Kiểm tra dữ liệu coin có đầy đủ không
-                    required_keys = ['optimal_entry', 'stop_loss', 'tp1_price', 'tp2_price']
+                    required_keys = ['optimal_entry', 'stop_loss', 'tp_price']
                     missing_keys = [key for key in required_keys if key not in coin_data]
                     
                     if missing_keys:
@@ -1491,16 +1485,14 @@ def execute_auto_trading(recommendations):
                         # Tạo giá trị mặc định dựa trên giá hiện tại
                         entry_jpy = current_jpy_price
                         stop_loss_jpy = current_jpy_price * 0.97  # -3% stop loss
-                        tp1_jpy = current_jpy_price * 1.02       # +2% take profit 1
-                        tp2_jpy = current_jpy_price * 1.05       # +5% take profit 2
+                        tp1_jpy = current_jpy_price * 1.02       # +2% take profit
                         
                         print(f"⚠️ Sử dụng giá trị mặc định - Entry: ¥{entry_jpy:,.2f}, SL: ¥{stop_loss_jpy:,.2f}")
                     else:
                         # Lấy thông tin giá từ khuyến nghị (JPY)
                         entry_jpy = coin_data['optimal_entry']
                         stop_loss_jpy = coin_data['stop_loss']
-                        tp1_jpy = coin_data['tp1_price']
-                        tp2_jpy = coin_data['tp2_price']
+                        tp1_jpy = coin_data['tp_price']  # Chỉ còn 1 TP
                     
                     print(f"🎯 {jpy_symbol}: Entry ¥{entry_jpy:.2f} | Đầu tư ¥{investment_amount:,.2f}")
                     
@@ -1509,7 +1501,7 @@ def execute_auto_trading(recommendations):
                         # Đủ JPY - trade trực tiếp
                         result = place_buy_order_with_sl_tp(
                             original_symbol, quantity, entry_jpy, 
-                            stop_loss_jpy, tp1_jpy, tp2_jpy
+                            stop_loss_jpy, tp1_jpy
                         )
                     else:
                         # Không đủ JPY
@@ -1670,6 +1662,260 @@ def analyze_order_book(order_book):
         'price_range_sell': price_range_sell
     }
 
+# Hàm phát hiện và phân tích downtrend chuyên sâu
+def detect_comprehensive_downtrend(df, symbol):
+    """
+    Phát hiện downtrend với nhiều chỉ báo kỹ thuật và độ tin cậy cao
+    
+    Args:
+        df: DataFrame chứa dữ liệu OHLCV
+        symbol: Symbol đang phân tích
+    
+    Returns:
+        dict: {
+            'detected': bool,
+            'strength': str ('WEAK', 'MODERATE', 'STRONG'),
+            'confidence': float (0-100),
+            'reasons': list,
+            'signals': dict,
+            'risk_level': str,
+            'recommendation': str
+        }
+    """
+    if df is None or len(df) < 50:
+        return {
+            'detected': False,
+            'strength': 'NONE',
+            'confidence': 0,
+            'reasons': ['Insufficient data'],
+            'signals': {},
+            'risk_level': 'UNKNOWN',
+            'recommendation': 'SKIP - Insufficient data'
+        }
+    
+    try:
+        # Tính các chỉ báo kỹ thuật
+        df_temp = df.copy()
+        df_temp['SMA_10'] = SMAIndicator(df_temp['close'], window=10).sma_indicator()
+        df_temp['SMA_20'] = SMAIndicator(df_temp['close'], window=20).sma_indicator()
+        df_temp['SMA_50'] = SMAIndicator(df_temp['close'], window=50).sma_indicator()
+        df_temp['RSI'] = RSIIndicator(df_temp['close'], window=14).rsi()
+        
+        # Bollinger Bands
+        bb = BollingerBands(df_temp['close'], window=20)
+        df_temp['BB_upper'] = bb.bollinger_hband()
+        df_temp['BB_lower'] = bb.bollinger_lband()
+        df_temp['BB_middle'] = bb.bollinger_mavg()
+        
+        # MACD
+        macd = MACD(df_temp['close'])
+        df_temp['MACD'] = macd.macd()
+        df_temp['MACD_signal'] = macd.macd_signal()
+        df_temp['MACD_histogram'] = macd.macd_diff()
+        
+        latest = df_temp.iloc[-1]
+        prev_10 = df_temp.iloc[-10] if len(df_temp) >= 10 else df_temp.iloc[0]
+        prev_20 = df_temp.iloc[-20] if len(df_temp) >= 20 else df_temp.iloc[0]
+        
+        downtrend_signals = {}
+        downtrend_reasons = []
+        signal_strength = 0
+        
+        # 1. MOVING AVERAGES ANALYSIS
+        ma_bearish_score = 0
+        if latest['SMA_10'] < latest['SMA_20']:
+            ma_bearish_score += 2
+            downtrend_reasons.append("SMA10 < SMA20")
+        
+        if latest['SMA_20'] < latest['SMA_50']:
+            ma_bearish_score += 2
+            downtrend_reasons.append("SMA20 < SMA50")
+        
+        if latest['close'] < latest['SMA_10']:
+            ma_bearish_score += 1
+            downtrend_reasons.append("Price below SMA10")
+        
+        if latest['close'] < latest['SMA_20']:
+            ma_bearish_score += 1
+            downtrend_reasons.append("Price below SMA20")
+        
+        # Slope analysis - MAs đang giảm
+        if latest['SMA_10'] < prev_10['SMA_10']:
+            ma_bearish_score += 1
+            downtrend_reasons.append("SMA10 declining")
+        
+        if latest['SMA_20'] < prev_20['SMA_20']:
+            ma_bearish_score += 1
+            downtrend_reasons.append("SMA20 declining")
+        
+        downtrend_signals['moving_averages'] = ma_bearish_score
+        signal_strength += ma_bearish_score
+        
+        # 2. RSI ANALYSIS
+        rsi_bearish_score = 0
+        if latest['RSI'] < 50:
+            rsi_bearish_score += 1
+            if latest['RSI'] < 30:
+                rsi_bearish_score += 1
+                downtrend_reasons.append(f"RSI oversold ({latest['RSI']:.1f})")
+            else:
+                downtrend_reasons.append(f"RSI bearish ({latest['RSI']:.1f})")
+        
+        # RSI đang giảm
+        if latest['RSI'] < prev_10['RSI']:
+            rsi_bearish_score += 1
+            downtrend_reasons.append("RSI declining")
+        
+        downtrend_signals['rsi'] = rsi_bearish_score
+        signal_strength += rsi_bearish_score
+        
+        # 3. MACD ANALYSIS
+        macd_bearish_score = 0
+        if latest['MACD'] < latest['MACD_signal']:
+            macd_bearish_score += 2
+            downtrend_reasons.append("MACD bearish crossover")
+        
+        if latest['MACD'] < 0:
+            macd_bearish_score += 1
+            downtrend_reasons.append("MACD below zero")
+        
+        if latest['MACD_histogram'] < 0:
+            macd_bearish_score += 1
+            downtrend_reasons.append("MACD histogram negative")
+        
+        downtrend_signals['macd'] = macd_bearish_score
+        signal_strength += macd_bearish_score
+        
+        # 4. BOLLINGER BANDS ANALYSIS
+        bb_bearish_score = 0
+        if latest['close'] < latest['BB_middle']:
+            bb_bearish_score += 1
+            downtrend_reasons.append("Price below BB middle")
+        
+        if latest['close'] < latest['BB_lower']:
+            bb_bearish_score += 2
+            downtrend_reasons.append("Price below BB lower band")
+        
+        # BB width - volatility expansion in downtrend
+        bb_width = (latest['BB_upper'] - latest['BB_lower']) / latest['BB_middle']
+        prev_bb_width = (prev_10['BB_upper'] - prev_10['BB_lower']) / prev_10['BB_middle']
+        
+        if bb_width > prev_bb_width * 1.2 and latest['close'] < latest['BB_middle']:
+            bb_bearish_score += 1
+            downtrend_reasons.append("BB expansion with price decline")
+        
+        downtrend_signals['bollinger_bands'] = bb_bearish_score
+        signal_strength += bb_bearish_score
+        
+        # 5. PRICE ACTION ANALYSIS
+        pa_bearish_score = 0
+        
+        # Consecutive declining closes
+        recent_closes = df_temp['close'].tail(5).values
+        declining_count = 0
+        for i in range(1, len(recent_closes)):
+            if recent_closes[i] < recent_closes[i-1]:
+                declining_count += 1
+        
+        if declining_count >= 3:
+            pa_bearish_score += 2
+            downtrend_reasons.append(f"{declining_count}/4 declining closes")
+        elif declining_count >= 2:
+            pa_bearish_score += 1
+            downtrend_reasons.append(f"{declining_count}/4 declining closes")
+        
+        # Lower highs and lower lows
+        recent_highs = df_temp['high'].tail(10).values
+        recent_lows = df_temp['low'].tail(10).values
+        
+        if len(recent_highs) >= 5 and recent_highs[-1] < recent_highs[-3] < recent_highs[-5]:
+            pa_bearish_score += 2
+            downtrend_reasons.append("Lower highs pattern")
+        
+        if len(recent_lows) >= 5 and recent_lows[-1] < recent_lows[-3] < recent_lows[-5]:
+            pa_bearish_score += 2
+            downtrend_reasons.append("Lower lows pattern")
+        
+        downtrend_signals['price_action'] = pa_bearish_score
+        signal_strength += pa_bearish_score
+        
+        # 6. VOLUME ANALYSIS
+        volume_bearish_score = 0
+        if len(df_temp) >= 10:
+            recent_volume = df_temp['volume'].tail(5).mean()
+            prev_volume = df_temp['volume'].tail(15).head(10).mean()
+            
+            # Volume tăng khi giá giảm
+            price_change_5d = (latest['close'] - df_temp.iloc[-5]['close']) / df_temp.iloc[-5]['close'] * 100
+            
+            if recent_volume > prev_volume * 1.3 and price_change_5d < -2:
+                volume_bearish_score += 2
+                downtrend_reasons.append("High volume on decline")
+            elif recent_volume > prev_volume * 1.1 and price_change_5d < -1:
+                volume_bearish_score += 1
+                downtrend_reasons.append("Moderate volume on decline")
+        
+        downtrend_signals['volume'] = volume_bearish_score
+        signal_strength += volume_bearish_score
+        
+        # OVERALL ASSESSMENT
+        max_possible_score = 24  # Tổng điểm tối đa
+        confidence_percentage = min(100, (signal_strength / max_possible_score) * 100)
+        
+        # Xác định strength
+        if signal_strength >= 16:  # >= 67% of max score
+            strength = "STRONG"
+            risk_level = "HIGH"
+            recommendation = "AVOID - Strong downtrend detected"
+        elif signal_strength >= 10:  # >= 42% of max score
+            strength = "MODERATE"
+            risk_level = "MEDIUM"
+            recommendation = "CAUTION - Moderate downtrend, reduce position size"
+        elif signal_strength >= 6:  # >= 25% of max score
+            strength = "WEAK"
+            risk_level = "LOW"
+            recommendation = "PROCEED WITH CAUTION - Weak downtrend signals"
+        else:
+            strength = "NONE"
+            risk_level = "NORMAL"
+            recommendation = "NORMAL - No significant downtrend detected"
+        
+        detected = signal_strength >= 6  # Threshold for downtrend detection
+        
+        return {
+            'detected': detected,
+            'strength': strength,
+            'confidence': confidence_percentage,
+            'reasons': downtrend_reasons,
+            'signals': downtrend_signals,
+            'signal_strength': signal_strength,
+            'max_possible_score': max_possible_score,
+            'risk_level': risk_level,
+            'recommendation': recommendation,
+            'analysis_data': {
+                'current_price': latest['close'],
+                'sma10': latest['SMA_10'],
+                'sma20': latest['SMA_20'],
+                'sma50': latest['SMA_50'],
+                'rsi': latest['RSI'],
+                'macd': latest['MACD'],
+                'macd_signal': latest['MACD_signal'],
+                'bb_position': 'below' if latest['close'] < latest['BB_lower'] else 'above' if latest['close'] > latest['BB_upper'] else 'middle'
+            }
+        }
+        
+    except Exception as e:
+        print(f"⚠️ Lỗi phân tích downtrend cho {symbol}: {e}")
+        return {
+            'detected': False,
+            'strength': 'UNKNOWN',
+            'confidence': 0,
+            'reasons': [f'Analysis error: {e}'],
+            'signals': {},
+            'risk_level': 'UNKNOWN',
+            'recommendation': 'SKIP - Analysis failed'
+        }
+
 # Hàm tính toán take profit có tính phí giao dịch
 def calculate_tp_with_fees(entry_price, target_profit_percent, trading_fee_percent=0.1):
     """
@@ -1694,243 +1940,394 @@ def calculate_tp_with_fees(entry_price, target_profit_percent, trading_fee_perce
     
     return tp_price
 
+# Hàm tính toán entry, TP và SL thông minh dựa trên downtrend analysis
+def calculate_dynamic_entry_tp_sl(entry_price, order_book_analysis, downtrend_analysis):
+    """
+    Tính toán động entry price, take profit và stop loss dựa trên:
+    - Downtrend analysis strength
+    - Order book conditions
+    - Risk management principles
+    
+    Args:
+        entry_price: Giá vào lệnh cơ bản
+        order_book_analysis: Phân tích order book
+        downtrend_analysis: Kết quả phân tích downtrend
+    
+    Returns:
+        dict: {
+            'optimal_entry': float,
+            'tp_price': float,
+            'stop_loss': float,
+            'buffer_adjustment': str,
+            'tp_reasoning': str,
+            'sl_reasoning': str
+        }
+    """
+    
+    downtrend_detected = downtrend_analysis['detected']
+    downtrend_strength = downtrend_analysis['strength']
+    risk_level = downtrend_analysis['risk_level']
+    
+    # === ENTRY PRICE ADJUSTMENT ===
+    if downtrend_detected:
+        if downtrend_strength == "STRONG":
+            # STRONG downtrend - không nên trade, nhưng nếu buộc phải thì rất thận trọng
+            entry_buffer = 0.005  # +0.5% buffer cao
+            buffer_reason = "Strong downtrend - high entry buffer"
+        elif downtrend_strength == "MODERATE":
+            entry_buffer = 0.003  # +0.3% buffer
+            buffer_reason = "Moderate downtrend - increased entry buffer"
+        else:  # WEAK
+            entry_buffer = 0.002  # +0.2% buffer
+            buffer_reason = "Weak downtrend - slight entry buffer increase"
+    else:
+        entry_buffer = 0.001  # +0.1% buffer normal
+        buffer_reason = "Normal market - standard entry buffer"
+    
+    optimal_entry = entry_price * (1 + entry_buffer)
+    
+    # === TAKE PROFIT CALCULATION ===
+    if downtrend_detected:
+        if downtrend_strength == "STRONG":
+            # Rất conservative - lấy lời nhanh
+            tp_percent = 0.25  # 0.25% + fees
+            tp_reasoning = "Strong downtrend - quick profit taking"
+        elif downtrend_strength == "MODERATE":
+            tp_percent = 0.3   # 0.3% + fees
+            tp_reasoning = "Moderate downtrend - conservative profit targets"
+        else:  # WEAK
+            tp_percent = 0.35  # 0.35% + fees
+            tp_reasoning = "Weak downtrend - slightly reduced profit targets"
+    else:
+        # Normal market - sử dụng config hoặc order book analysis
+        if order_book_analysis and order_book_analysis.get('ask_wall_price', 0) > optimal_entry:
+            # Có resistance wall - conservative
+            tp_percent = 0.4   # 0.4% + fees (từ config)
+            tp_reasoning = "Normal market with resistance wall - standard targets"
+        else:
+            tp_percent = 0.4   # 0.4% + fees (standard)
+            tp_reasoning = "Normal market - standard profit targets"
+    
+    # Tính TP price với fees
+    tp_price = calculate_tp_with_fees(optimal_entry, tp_percent)
+    
+    # === STOP LOSS CALCULATION ===
+    if downtrend_detected:
+        if downtrend_strength == "STRONG":
+            # Stop loss rất chặt
+            sl_percent = 0.4  # -0.4%
+            sl_reasoning = "Strong downtrend - very tight stop loss"
+        elif downtrend_strength == "MODERATE":
+            sl_percent = 0.5  # -0.5%
+            sl_reasoning = "Moderate downtrend - tight stop loss"  
+        else:  # WEAK
+            sl_percent = 0.6  # -0.6%
+            sl_reasoning = "Weak downtrend - moderately tight stop loss"
+    else:
+        sl_percent = 0.8  # -0.8% normal
+        sl_reasoning = "Normal market - standard stop loss"
+    
+    # Tính stop loss price
+    stop_loss = optimal_entry * (1 - sl_percent / 100)
+    
+    # Điều chỉnh SL dựa trên order book support nếu có
+    if order_book_analysis and order_book_analysis.get('support_levels'):
+        nearest_support = max([s for s in order_book_analysis['support_levels'] if s < optimal_entry], default=0)
+        if nearest_support > 0:
+            # SL không thấp hơn support - 0.1%
+            support_based_sl = nearest_support * 0.999
+            if support_based_sl > stop_loss:
+                stop_loss = support_based_sl
+                sl_reasoning += " (adjusted to support level)"
+    
+    return {
+        'optimal_entry': optimal_entry,
+        'tp_price': tp_price,
+        'stop_loss': stop_loss,
+        'buffer_adjustment': buffer_reason,
+        'tp_reasoning': tp_reasoning,
+        'sl_reasoning': sl_reasoning,
+        'risk_reward_ratio': (tp_percent / sl_percent) if sl_percent > 0 else 0,
+        'tp_percent_with_fees': tp_percent,
+        'sl_percent': sl_percent
+    }
+
 # Hàm phân tích cơ hội giao dịch dựa trên sổ lệnh
 def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df):
     """
-    Phân tích cơ hội giao dịch dựa trên sổ lệnh khi không có tín hiệu kỹ thuật rõ ràng
-    Bổ sung logic bảo vệ tài khoản khi downtrend
+    Phân tích cơ hội giao dịch dựa trên sổ lệnh với phát hiện downtrend nâng cao
     """
     if not order_book_analysis:
         return None
     
-    # ===== KIỂM TRA DOWNTREND VÀ BẢO VỆ TÀI KHOẢN =====
-    downtrend_detected = False
-    downtrend_strength = "NONE"
-    downtrend_reasons = []
+    # ===== SỬ DỤNG HÀM PHÁT HIỆN DOWNTREND CHUYÊN SÂU =====
+    downtrend_analysis = detect_comprehensive_downtrend(df, symbol)
     
-    if len(df) >= 20:  # Cần đủ dữ liệu để phân tích trend
-        # Tính các chỉ báo kỹ thuật để xác định trend
-        df_temp = df.copy()
-        df_temp['SMA_10'] = SMAIndicator(df_temp['close'], window=10).sma_indicator()
-        df_temp['SMA_20'] = SMAIndicator(df_temp['close'], window=20).sma_indicator()
-        df_temp['RSI'] = RSIIndicator(df_temp['close'], window=14).rsi()
+    downtrend_detected = downtrend_analysis['detected']
+    downtrend_strength = downtrend_analysis['strength']
+    confidence_score = downtrend_analysis['confidence']
+    downtrend_reasons = downtrend_analysis['reasons']
+    risk_level = downtrend_analysis['risk_level']
+    
+    # Log thông tin downtrend nếu phát hiện
+    if downtrend_detected:
+        print(f"⚠️ DOWNTREND DETECTED for {symbol}:")
+        print(f"   🔻 Strength: {downtrend_strength} (Confidence: {confidence_score:.1f}%)")
+        print(f"   📊 Risk Level: {risk_level}")
+        print(f"   📋 Signals: {', '.join(downtrend_reasons[:3])}...")  # Show first 3 reasons
         
-        latest = df_temp.iloc[-1]
-        prev_5 = df_temp.iloc[-5]  # 5 candles trước
+        # STRONG downtrend - từ chối hoàn toàn
+        if downtrend_strength == "STRONG":
+            print(f"❌ REJECTED: {symbol} - Strong downtrend, confidence {confidence_score:.1f}%")
+            return None
         
-        # 1. Kiểm tra SMA trend
-        if latest['SMA_10'] < latest['SMA_20']:
-            downtrend_detected = True
-            downtrend_reasons.append("SMA_10 < SMA_20")
-        
-        # 2. Kiểm tra giá giảm liên tục
-        recent_closes = df_temp['close'].tail(5).values
-        if len(recent_closes) >= 3:
-            declining_candles = sum(1 for i in range(1, len(recent_closes)) if recent_closes[i] < recent_closes[i-1])
-            if declining_candles >= 3:  # 3/4 candles giảm
-                downtrend_detected = True
-                downtrend_reasons.append(f"{declining_candles}/4 candles giảm")
-        
-        # 3. Kiểm tra RSI oversold nhưng chưa có dấu hiệu phục hồi
-        if latest['RSI'] < 35 and latest['RSI'] < prev_5['RSI']:  # RSI giảm tiếp
-            downtrend_detected = True
-            downtrend_reasons.append(f"RSI oversold và giảm tiếp ({latest['RSI']:.1f})")
-        
-        # 4. Kiểm tra volume pattern (volume tăng khi giá giảm)
-        recent_volume = df_temp['volume'].tail(3).mean()
-        prev_volume = df_temp['volume'].tail(10).head(7).mean()  # Volume trung bình trước đó
-        price_change = (current_price - prev_5['close']) / prev_5['close'] * 100
-        
-        if recent_volume > prev_volume * 1.2 and price_change < -2:  # Volume tăng + giá giảm > 2%
-            downtrend_detected = True
-            downtrend_reasons.append("Volume tăng khi giá giảm")
-        
-        # 5. Xác định cường độ downtrend
-        if len(downtrend_reasons) >= 3:
-            downtrend_strength = "STRONG"
-        elif len(downtrend_reasons) >= 2:
-            downtrend_strength = "MODERATE" 
-        elif len(downtrend_reasons) >= 1:
-            downtrend_strength = "WEAK"
+        # MODERATE downtrend - yêu cầu cao hơn
+        elif downtrend_strength == "MODERATE":
+            print(f"⚠️ CAUTION: {symbol} - Moderate downtrend, applying strict filters")
+            if order_book_analysis['bid_ask_ratio'] < 2.0:  # Yêu cầu bid/ask ratio cao hơn
+                print(f"❌ REJECTED: Bid/Ask ratio {order_book_analysis['bid_ask_ratio']:.2f} < 2.0 in moderate downtrend")
+                return None
     
     opportunity = {
         'coin': symbol.replace('/JPY', ''),
         'current_price': current_price,
         'analysis_type': 'ORDER_BOOK_BASED',
-        'confidence': 'LOW_TO_MEDIUM',
+        'confidence': 'MEDIUM',
+        'downtrend_analysis': downtrend_analysis,
         'downtrend_detected': downtrend_detected,
         'downtrend_strength': downtrend_strength,
         'downtrend_reasons': downtrend_reasons
     }
     
     
-    # ===== LOGIC BẢO VỆ TÀI KHOẢN KHI DOWNTREND =====
+    # ===== LOGIC BẢO VỆ TÀI KHOẢN VỚI DOWNTREND ANALYSIS =====
+    # Tính toán confidence penalty dựa trên strength
     if downtrend_detected:
-        print(f"⚠️ CẢNH BÁO DOWNTREND cho {symbol}:")
-        print(f"   🔻 Cường độ: {downtrend_strength}")
-        print(f"     Lý do: {', '.join(downtrend_reasons)}")
-        
-        # Từ chối hoàn toàn nếu downtrend mạnh
         if downtrend_strength == "STRONG":
-            print(f"❌ TỪ CHỐI trading {symbol} - Downtrend quá mạnh!")
-            return None
+            confidence_penalty = 60  # Penalty cao nhất
+        elif downtrend_strength == "MODERATE":
+            confidence_penalty = 40
+        else:  # WEAK
+            confidence_penalty = 20
         
-        # Giảm confidence score cho downtrend vừa và yếu
-        confidence_penalty = 40 if downtrend_strength == "MODERATE" else 20
-        print(f"📉 Giảm confidence {confidence_penalty} điểm do downtrend")
+        print(f"📉 Applying downtrend penalty: -{confidence_penalty} points")
     else:
         confidence_penalty = 0
     
-    # Phân tích xu hướng từ bid/ask ratio với điều chỉnh downtrend
+    # Phân tích xu hướng từ bid/ask ratio với downtrend protection
     if order_book_analysis['bid_ask_ratio'] > 1.5:
         # Nhiều bid hơn ask - có thể xu hướng tăng
-        if downtrend_detected:
-            # Trong downtrend, cần bid/ask ratio cao hơn để tin tưởng
-            if order_book_analysis['bid_ask_ratio'] < 2.0:
-                print(f"⚠️ Bid/Ask ratio không đủ mạnh trong downtrend ({order_book_analysis['bid_ask_ratio']:.2f} < 2.0)")
-                return None
-            
-            opportunity['trend_signal'] = 'BULLISH_BUT_CAUTIOUS'
-            opportunity['reason'] = f"Bid/Ask ratio cao ({order_book_analysis['bid_ask_ratio']:.2f}) nhưng trong downtrend - thận trọng"
-        else:
-            opportunity['trend_signal'] = 'BULLISH'
-            opportunity['reason'] = f"Bid/Ask ratio cao ({order_book_analysis['bid_ask_ratio']:.2f}) - áp lực mua mạnh"
+        opportunity['trend_signal'] = 'BULLISH_BUT_CAUTIOUS' if downtrend_detected else 'BULLISH'
+        opportunity['reason'] = f"Bid/Ask ratio cao ({order_book_analysis['bid_ask_ratio']:.2f})"
         
-        # Mức giá vào lệnh: conservative hơn trong downtrend
-        if downtrend_detected:
-            entry_price = order_book_analysis['best_ask'] * 1.002  # +0.2% buffer, cao hơn bình thường
-        else:
-            entry_price = order_book_analysis['best_ask'] * 1.0005  # +0.05% buffer
+        # Sử dụng hàm tính toán động cho entry, TP, SL
+        base_entry = order_book_analysis['best_ask']
+        dynamic_calculation = calculate_dynamic_entry_tp_sl(base_entry, order_book_analysis, downtrend_analysis)
         
-        # Take profit levels dựa trên resistance và volume wall - CÙNG VỚI PHÍ GIAO DỊCH
-        if order_book_analysis['ask_wall_price'] > entry_price:
-            # Có volume wall phía trên
-            if downtrend_detected:
-                # Conservative trong downtrend: TP1 = 0.3%, TP2 = 0.6% (chưa tính phí)
-                tp1_price = calculate_tp_with_fees(entry_price, 0.3)  # +0.3% + phí = ~0.5%
-                tp2_price = calculate_tp_with_fees(entry_price, 0.6)  # +0.6% + phí = ~0.8%
-            else:
-                # Bình thường: TP1 = 0.5%, TP2 = 1.0% (chưa tính phí)
-                tp1_price = calculate_tp_with_fees(entry_price, 0.5)  # +0.5% + phí = ~0.7%
-                tp2_price = calculate_tp_with_fees(entry_price, 1.0)  # +1.0% + phí = ~1.2%
-        else:
-            # Không có wall gần, dùng % cố định - có tính phí
-            if downtrend_detected:
-                tp1_price = calculate_tp_with_fees(entry_price, 0.3)  # +0.3% + phí
-                tp2_price = calculate_tp_with_fees(entry_price, 0.6)  # +0.6% + phí
-            else:
-                tp1_price = calculate_tp_with_fees(entry_price, 0.5)  # +0.5% + phí
-                tp2_price = calculate_tp_with_fees(entry_price, 1.0)  # +1.0% + phí
+        entry_price = dynamic_calculation['optimal_entry']
+        tp_price = dynamic_calculation['tp_price']
+        stop_loss = dynamic_calculation['stop_loss']
         
-        # Stop loss: chặt hơn trong downtrend
-        if downtrend_detected:
-            # Stop loss chặt hơn trong downtrend
-            stop_loss = min(
-                order_book_analysis['volume_weighted_bid'] * 0.995,  # Chặt hơn
-                order_book_analysis['support_levels'][0] * 0.995 if order_book_analysis['support_levels'] else entry_price * 0.992
-            )
-        else:
-            stop_loss = min(
-                order_book_analysis['volume_weighted_bid'] * 0.998,
-                order_book_analysis['support_levels'][0] * 0.998 if order_book_analysis['support_levels'] else entry_price * 0.995
-            )
+        print(f"📊 Dynamic calculation for {symbol}:")
+        print(f"   🎯 Entry: ¥{entry_price:.4f} ({dynamic_calculation['buffer_adjustment']})")
+        print(f"   📈 TP: ¥{tp_price:.4f} ({dynamic_calculation['tp_reasoning']})")
+        print(f"   📉 SL: ¥{stop_loss:.4f} ({dynamic_calculation['sl_reasoning']})")
+        print(f"   ⚖️ Risk/Reward: {dynamic_calculation['risk_reward_ratio']:.2f}")
         
     elif order_book_analysis['bid_ask_ratio'] < 0.7:
         # Nhiều ask hơn bid - có thể xu hướng giảm
-        if downtrend_detected:
-            print(f"❌ TỪ CHỐI trading {symbol} - Cả order book và technical đều bearish!")
-            return None  # Từ chối hoàn toàn khi cả 2 đều bearish
-        
-        # Chỉ trade khi không có downtrend technical
-        opportunity['trend_signal'] = 'BEARISH_TO_BULLISH'
-        opportunity['reason'] = f"Bid/Ask ratio thấp ({order_book_analysis['bid_ask_ratio']:.2f}) - có thể oversold"
-        
-        # Mức giá vào lệnh: gần best bid để chờ giá giảm
-        entry_price = order_book_analysis['volume_weighted_bid'] * 1.001
-        
-        # Take profit conservative vì trend yếu - có tính phí
-        tp1_price = calculate_tp_with_fees(entry_price, 0.3)  # +0.3% + phí = ~0.5%
-        tp2_price = calculate_tp_with_fees(entry_price, 0.8)  # +0.8% + phí = ~1.0%
-        
-        # Stop loss chặt vì trend bearish
-        stop_loss = entry_price * 0.997  # -0.3%
-        
-    else:
-        # Cân bằng - trong downtrend thì skip, không downtrend thì scalp
-        if downtrend_detected:
-            print(f"⚠️ SKIP trading {symbol} - Thị trường cân bằng trong downtrend, rủi ro cao")
+        if downtrend_detected and downtrend_strength in ["MODERATE", "STRONG"]:
+            print(f"❌ REJECTED: {symbol} - Order book bearish + {downtrend_strength} downtrend")
             return None
         
-        opportunity['trend_signal'] = 'NEUTRAL_SCALPING'
-        opportunity['reason'] = f"Thị trường cân bằng - cơ hội scalping trong spread"
+        opportunity['trend_signal'] = 'BEARISH_TO_BULLISH'
+        opportunity['reason'] = f"Bid/Ask ratio thấp ({order_book_analysis['bid_ask_ratio']:.2f}) - potential oversold"
         
-        # Vào lệnh ở giữa spread
-        mid_price = (order_book_analysis['best_bid'] + order_book_analysis['best_ask']) / 2
-        entry_price = mid_price
+        # Tính toán động cho trường hợp oversold
+        base_entry = order_book_analysis['volume_weighted_bid'] * 1.001
+        dynamic_calculation = calculate_dynamic_entry_tp_sl(base_entry, order_book_analysis, downtrend_analysis)
         
-        # Take profit nhỏ trong spread - có tính phí
-        tp1_price = calculate_tp_with_fees(entry_price, 0.15)  # +0.15% + phí = ~0.35%
-        tp2_price = calculate_tp_with_fees(entry_price, 0.25)  # +0.25% + phí = ~0.45%
+        entry_price = dynamic_calculation['optimal_entry']
+        tp_price = dynamic_calculation['tp_price'] 
+        stop_loss = dynamic_calculation['stop_loss']
         
-        # Stop loss gần bid
-        stop_loss = order_book_analysis['best_bid'] * 1.0005
+    else:
+        # Neutral - Bid/Ask cân bằng
+        if downtrend_detected and downtrend_strength != "WEAK":
+            print(f"⚠️ SKIP: {symbol} - Neutral order book in {downtrend_strength} downtrend")
+            return None
+        
+        opportunity['trend_signal'] = 'NEUTRAL'
+        opportunity['reason'] = f"Bid/Ask cân bằng ({order_book_analysis['bid_ask_ratio']:.2f})"
+        
+        # Entry ở giữa spread
+        base_entry = (order_book_analysis['best_bid'] + order_book_analysis['best_ask']) / 2
+        dynamic_calculation = calculate_dynamic_entry_tp_sl(base_entry, order_book_analysis, downtrend_analysis)
+        
+        entry_price = dynamic_calculation['optimal_entry']
+        tp_price = dynamic_calculation['tp_price']
+        stop_loss = dynamic_calculation['stop_loss']
     
-    # Tính toán risk/reward và volume analysis với điều chỉnh downtrend
-    risk_percent = (entry_price - stop_loss) / entry_price * 100
-    reward_percent = (tp1_price - entry_price) / entry_price * 100
-    risk_reward_ratio = reward_percent / risk_percent if risk_percent > 0 else 0
+    # Tính toán risk/reward ratio từ dynamic calculation
+    if 'dynamic_calculation' in locals():
+        risk_reward_ratio = dynamic_calculation['risk_reward_ratio']
+        risk_percent = dynamic_calculation['sl_percent']
+        reward_percent = dynamic_calculation['tp_percent_with_fees']
+    else:
+        risk_percent = (entry_price - stop_loss) / entry_price * 100
+        reward_percent = (tp_price - entry_price) / entry_price * 100
+        risk_reward_ratio = reward_percent / risk_percent if risk_percent > 0 else 0
     
-    # Đánh giá độ tin cậy dựa trên volume và spread - điều chỉnh cho downtrend
-    confidence_score = 0
-    if order_book_analysis['spread'] < 0.1:  # Spread thấp
-        confidence_score += 25
-    if order_book_analysis['total_bid_volume'] > 1000:  # Volume lớn
-        confidence_score += 25
-    if abs(order_book_analysis['bid_ask_ratio'] - 1) > 0.3:  # Có bias rõ ràng
-        confidence_score += 25
-    if risk_reward_ratio > 1:  # Risk/reward tốt
-        confidence_score += 25
+    # Confidence scoring với downtrend protection
+    base_confidence = 50
+    if order_book_analysis['spread'] < 0.1:
+        base_confidence += 15
+    if order_book_analysis['total_bid_volume'] > 1000:
+        base_confidence += 15
+    if risk_reward_ratio > 1.5:
+        base_confidence += 15
     
-    # Áp dụng penalty do downtrend
-    confidence_score = max(0, confidence_score - confidence_penalty)
+    final_confidence = max(0, base_confidence - confidence_penalty)
     
-    # Thêm yêu cầu confidence cao hơn trong downtrend
-    min_confidence_required = 70 if downtrend_detected else 50
+    # Requirements dựa trên downtrend strength
+    if downtrend_detected:
+        min_confidence_required = 85 if downtrend_strength == "STRONG" else 70 if downtrend_strength == "MODERATE" else 60
+    else:
+        min_confidence_required = 50
     
-    if confidence_score < min_confidence_required:
-        print(f"❌ Confidence score quá thấp: {confidence_score} < {min_confidence_required} (cần thiết {'trong downtrend' if downtrend_detected else 'bình thường'})")
+    if final_confidence < min_confidence_required:
+        print(f"❌ REJECTED: {symbol} - Confidence {final_confidence} < {min_confidence_required}")
         return None
     
+    # Cập nhật opportunity
     opportunity.update({
-        'optimal_entry': entry_price,  # Key chính xác cho trading
-        'entry_price': entry_price,    # Backup key 
+        'optimal_entry': entry_price,
+        'entry_price': entry_price,
         'stop_loss': stop_loss,
-        'tp1_price': tp1_price,
-        'tp2_price': tp2_price,
+        'tp_price': tp_price,
         'risk_percent': risk_percent,
         'reward_percent': reward_percent,
         'risk_reward_ratio': risk_reward_ratio,
-        'confidence_score': confidence_score,
+        'confidence_score': final_confidence,
         'spread': order_book_analysis['spread'],
         'bid_ask_ratio': order_book_analysis['bid_ask_ratio'],
-        'total_volume': order_book_analysis['total_bid_volume'] + order_book_analysis['total_ask_volume'],
-        'min_confidence_required': min_confidence_required,
-        'confidence_penalty': confidence_penalty
+        'total_volume': order_book_analysis['total_bid_volume'] + order_book_analysis['total_ask_volume']
     })
     
-    # Log thông tin bảo vệ downtrend
+    # Log kết quả
     if downtrend_detected:
-        print(f"✅ CHẤP NHẬN trading {symbol} với biện pháp bảo vệ:")
-        print(f"     Entry: ¥{entry_price:.4f} (buffer cao hơn)")
-        print(f"   🛡️ Stop Loss: ¥{stop_loss:.4f} (chặt hơn: {risk_percent:.2f}%)")
-        print(f"    Take Profit: ¥{tp1_price:.4f} (thấp hơn: {reward_percent:.2f}%)")
-        print(f"     Confidence: {confidence_score}/100 (đã giảm {confidence_penalty} điểm)")
-        print(f"   ⚖️ Risk/Reward: {risk_reward_ratio:.2f}")
+        print(f"✅ ACCEPTED with PROTECTION: {symbol} ({downtrend_strength} downtrend)")
+        print(f"   Entry: ¥{entry_price:.4f} | TP: ¥{tp_price:.4f} | SL: ¥{stop_loss:.4f}")
+        print(f"   R/R: {risk_reward_ratio:.2f} | Confidence: {final_confidence}/100")
     
     return opportunity
 
-# Hàm tìm cơ hội giao dịch từ sổ lệnh cho tất cả coins
 # Hàm tìm cơ hội giao dịch từ sổ lệnh cho tất cả coins - TỐI ƯU TỐC ĐỘ
+def find_orderbook_opportunities_placeholder():
+    """Placeholder function - will be implemented later"""
+    pass
+
+# Hàm demo phát hiện downtrend (để test)
+def demo_downtrend_detection(symbol_list=None):
+    """
+    Demo function để test tính năng phát hiện downtrend
+    """
+    if symbol_list is None:
+        symbol_list = ['ADA/JPY', 'XRP/JPY', 'XLM/JPY']
+    
+    print("🔍 DEMO: DOWNTREND DETECTION SYSTEM")
+    print("=" * 60)
+    
+    for symbol in symbol_list:
+        try:
+            print(f"\n📊 Analyzing {symbol}...")
+            
+            # Lấy dữ liệu
+            df = get_crypto_data(symbol, timeframe='1h', limit=100)
+            if df is None or len(df) < 50:
+                print(f"❌ {symbol}: Insufficient data")
+                continue
+            
+            # Phát hiện downtrend
+            downtrend_analysis = detect_comprehensive_downtrend(df, symbol)
+            
+            # Hiển thị kết quả
+            print(f"📈 Current Price: ¥{df['close'].iloc[-1]:.4f}")
+            print(f"🔻 Downtrend Detected: {'YES' if downtrend_analysis['detected'] else 'NO'}")
+            print(f"💪 Strength: {downtrend_analysis['strength']}")
+            print(f"🎯 Confidence: {downtrend_analysis['confidence']:.1f}%")
+            print(f"⚠️ Risk Level: {downtrend_analysis['risk_level']}")
+            print(f"💡 Recommendation: {downtrend_analysis['recommendation']}")
+            
+            if downtrend_analysis['detected']:
+                print(f"📋 Key Signals:")
+                for key, value in downtrend_analysis['signals'].items():
+                    if value > 0:
+                        print(f"   • {key.replace('_', ' ').title()}: {value} points")
+                
+                print(f"🔍 Top Reasons:")
+                for i, reason in enumerate(downtrend_analysis['reasons'][:5], 1):
+                    print(f"   {i}. {reason}")
+            
+            # Test orderbook opportunity với downtrend protection
+            order_book = get_order_book(symbol, limit=20)
+            order_book_analysis = analyze_order_book(order_book)
+            
+            if order_book_analysis:
+                opportunity = analyze_orderbook_opportunity(symbol, df['close'].iloc[-1], order_book_analysis, df)
+                if opportunity:
+                    print(f"✅ Trading Opportunity: ACCEPTED")
+                    print(f"   🎯 Entry: ¥{opportunity['optimal_entry']:.4f}")
+                    print(f"   📈 TP: ¥{opportunity['tp_price']:.4f}")
+                    print(f"   📉 SL: ¥{opportunity['stop_loss']:.4f}")
+                    print(f"   ⚖️ Risk/Reward: {opportunity['risk_reward_ratio']:.2f}")
+                    print(f"   🎯 Confidence: {opportunity['confidence_score']}/100")
+                else:
+                    print(f"❌ Trading Opportunity: REJECTED")
+            
+            print("-" * 40)
+            
+        except Exception as e:
+            print(f"❌ Error analyzing {symbol}: {e}")
+    
+    print(f"\n✅ Demo completed!")
+
+# Hàm hiển thị thông tin hệ thống downtrend protection
+def show_downtrend_protection_info():
+    """Hiển thị thông tin về hệ thống bảo vệ downtrend"""
+    print("🛡️ DOWNTREND PROTECTION SYSTEM")
+    print("=" * 50)
+    print("📊 TECHNICAL INDICATORS ANALYZED:")
+    print("   • Moving Averages (SMA 10, 20, 50)")
+    print("   • RSI (14-period)")
+    print("   • MACD with Signal Line")
+    print("   • Bollinger Bands")
+    print("   • Price Action Patterns")
+    print("   • Volume Analysis")
+    print()
+    print("🔍 DETECTION LEVELS:")
+    print("   • WEAK: 6-9 points (25-37% confidence)")
+    print("   • MODERATE: 10-15 points (42-62% confidence)")  
+    print("   • STRONG: 16+ points (67%+ confidence)")
+    print()
+    print("⚖️ RISK MANAGEMENT:")
+    print("   • STRONG: Completely avoid trading")
+    print("   • MODERATE: Require 2.0+ bid/ask ratio")
+    print("   • WEAK: Apply 20-point confidence penalty")
+    print()
+    print("💰 DYNAMIC ADJUSTMENTS:")
+    print("   • Entry Buffer: +0.1% to +0.5% based on strength")
+    print("   • Take Profit: 0.25% to 0.4% + fees")
+    print("   • Stop Loss: -0.4% to -0.8% based on strength")
+    print("   • Confidence Required: 50-85 based on conditions")
+    print()
+    print("🎯 USAGE:")
+    print("   • Call demo_downtrend_detection() to test")
+    print("   • Integrated in analyze_orderbook_opportunity()")
+    print("   • Automatic protection in trading logic")
+    print("=" * 50)
+
+# Hàm tóm tắt tất cả tính năng mới được thêm
 def find_orderbook_opportunities(timeframe='1h', min_confidence=50):
     """
     Tìm cơ hội giao dịch dựa trên sổ lệnh khi không có tín hiệu kỹ thuật - TỐI ƯU TỐC ĐỘ
@@ -3260,6 +3657,48 @@ def check_all_orders_now():
 initialize_order_monitoring()
 
 # ======================== MAIN ENTRY POINT ========================
+
+# Hàm tóm tắt tất cả tính năng mới được thêm
+def show_enhanced_features_summary():
+    """Hiển thị tóm tắt về các tính năng được nâng cấp"""
+    print("🚀 ENHANCED TRADING BOT FEATURES")
+    print("=" * 60)
+    print("1. 🔍 COMPREHENSIVE DOWNTREND DETECTION")
+    print("   ✅ Multi-indicator analysis (6 different signals)")
+    print("   ✅ Confidence scoring (0-100%)")
+    print("   ✅ Risk level assessment")
+    print("   ✅ Strength classification (WEAK/MODERATE/STRONG)")
+    print()
+    print("2. 🎯 DYNAMIC ENTRY/TP/SL CALCULATION")
+    print("   ✅ Adaptive entry buffers based on market conditions")
+    print("   ✅ Downtrend-aware take profit targets")
+    print("   ✅ Intelligent stop loss placement")
+    print("   ✅ Risk/reward optimization")
+    print()
+    print("3. ⚖️ ENHANCED RISK MANAGEMENT")
+    print("   ✅ Automatic position rejection in strong downtrends")
+    print("   ✅ Higher confidence requirements during bearish periods")
+    print("   ✅ Dynamic confidence penalties")
+    print("   ✅ Order book strength validation")
+    print()
+    print("4. 📊 INTELLIGENT ORDER BOOK ANALYSIS")
+    print("   ✅ Bid/ask ratio analysis")
+    print("   ✅ Volume wall detection")
+    print("   ✅ Support/resistance integration")
+    print("   ✅ Liquidity-aware position sizing")
+    print()
+    print("5. 🛡️ ADVANCED PROTECTION MECHANISMS")
+    print("   ✅ Multi-layer downtrend validation")
+    print("   ✅ Emergency stop on strong bearish signals")
+    print("   ✅ Conservative profit taking in uncertain markets")
+    print("   ✅ Detailed logging for transparency")
+    print()
+    print("🎯 USAGE COMMANDS:")
+    print("   • show_downtrend_protection_info() - System details")
+    print("   • demo_downtrend_detection() - Test downtrend detection")
+    print("   • show_enhanced_features_summary() - This summary")
+    print("   • Normal trading flow includes all protections automatically")
+    print("=" * 60)
 
 def main():
     """Main entry point với proper error handling"""
