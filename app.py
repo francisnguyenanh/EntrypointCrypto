@@ -986,9 +986,12 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
         
         # 2. Đặt stop loss và take profit với số lượng thực tế
         orders_placed = []
+        oco_success = False
         
-        try:
-            if TRADING_CONFIG['use_oco_orders']:
+        # Thử đặt OCO order trước (nếu được bật)
+        if TRADING_CONFIG['use_oco_orders']:
+            try:
+                print(f"🔄 Đang thử đặt OCO order cho {trading_symbol}...")
                 # Sử dụng OCO order (One-Cancels-Other) - trade trực tiếp JPY
                 oco_order = binance.create_order(
                     symbol=trading_symbol,
@@ -1003,19 +1006,36 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                     }
                 )
                 orders_placed.append(oco_order)
+                oco_success = True
                 print(f"✅ OCO order đặt thành công - SL: ¥{stop_loss:.4f}, TP: ¥{tp1_price:.4f}")
                 send_notification(f"🛡️ OCO {trading_symbol}: SL ¥{stop_loss:.4f} | TP ¥{tp1_price:.4f}")
                 
                 # Thêm OCO order vào danh sách theo dõi
                 add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
                 
-            else:
-                # Đặt stop loss riêng
+            except Exception as oco_error:
+                oco_error_str = str(oco_error).lower()
+                print(f"⚠️ OCO order thất bại: {oco_error}")
+                
+                # Kiểm tra lý do lỗi OCO
+                if any(keyword in oco_error_str for keyword in ['not supported', 'oco', 'invalid order type']):
+                    print("📝 Binance không hỗ trợ OCO cho symbol này - Chuyển sang đặt lệnh riêng lẻ")
+                    send_notification(f"⚠️ OCO không hỗ trợ cho {trading_symbol} - Dùng SL/TP riêng lẻ")
+                else:
+                    print(f"📝 OCO thất bại (lý do khác): {oco_error} - Chuyển sang đặt lệnh riêng lẻ")
+                    send_notification(f"⚠️ OCO lỗi cho {trading_symbol}: {oco_error} - Dùng SL/TP riêng lẻ")
+        
+        # Nếu OCO thất bại hoặc không được bật, đặt lệnh riêng lẻ
+        if not oco_success:
+            print(f"🔄 Đặt Stop Loss và Take Profit riêng lẻ cho {trading_symbol}...")
+            
+            # 1. Đặt Stop Loss
+            try:
                 stop_order = binance.create_order(
                     symbol=trading_symbol,
                     type='STOP_LOSS_LIMIT',
                     side='sell',
-                    amount=actual_quantity,
+                    amount=actual_quantity * 0.7,  # 70% cho stop loss
                     price=stop_loss * (1 - TRADING_CONFIG.get('stop_loss_buffer', 0.001)),
                     params={
                         'stopPrice': stop_loss,
@@ -1023,29 +1043,65 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp1_pri
                     }
                 )
                 orders_placed.append(stop_order)
-                print(f"✅ Stop Loss đặt thành công: ¥{stop_loss:,.2f}")
+                print(f"✅ Stop Loss đặt thành công: ¥{stop_loss:,.4f} (70% quantity)")
+                send_notification(f"🛡️ SL {trading_symbol}: ¥{stop_loss:.4f}")
                 
                 # Thêm stop loss vào danh sách theo dõi
                 add_order_to_monitor(stop_order['id'], trading_symbol, "STOP_LOSS", actual_price)
                 
-        except Exception as sl_error:
-            print(f"⚠️ Lỗi đặt stop loss: {sl_error}")
-            send_notification(f"⚠️ Lỗi đặt SL cho {trading_symbol}: {sl_error}", urgent=True)
+            except Exception as sl_error:
+                print(f"❌ Lỗi đặt Stop Loss: {sl_error}")
+                send_notification(f"❌ Lỗi đặt SL cho {trading_symbol}: {sl_error}", urgent=True)
+            
+            # 2. Đặt Take Profit 1
+            try:
+                tp1_order = binance.create_limit_sell_order(
+                    trading_symbol, 
+                    actual_quantity * 0.4,  # 40% cho TP1
+                    tp1_price
+                )
+                orders_placed.append(tp1_order)
+                print(f"✅ Take Profit 1 đặt thành công: ¥{tp1_price:,.4f} (40% quantity)")
+                send_notification(f"🎯 TP1 {trading_symbol}: ¥{tp1_price:.4f}")
+                
+                # Thêm TP1 vào danh sách theo dõi
+                add_order_to_monitor(tp1_order['id'], trading_symbol, "TAKE_PROFIT_1", actual_price)
+                
+            except Exception as tp1_error:
+                print(f"❌ Lỗi đặt Take Profit 1: {tp1_error}")
+                send_notification(f"❌ Lỗi đặt TP1 cho {trading_symbol}: {tp1_error}", urgent=True)
         
-        # 3. Đặt take profit thứ 2 (nếu khác TP1)
+        # 3. Đặt take profit thứ 2 (cho quantity còn lại)
         try:
             if abs(tp2_price - tp1_price) > 1:  # Nếu TP2 khác TP1 (JPY)
-                tp2_quantity = actual_quantity * 0.3  # 30% cho TP2
-                tp2_order = binance.create_limit_sell_order(trading_symbol, tp2_quantity, tp2_price)
+                # Tính quantity còn lại (nếu OCO thành công thì 30%, nếu không thì 30%)
+                remaining_quantity = actual_quantity * 0.3
+                
+                tp2_order = binance.create_limit_sell_order(trading_symbol, remaining_quantity, tp2_price)
                 orders_placed.append(tp2_order)
-                print(f"✅ Take Profit 2 đặt thành công: ¥{tp2_price:,.2f}")
-                send_notification(f"🎯 TP2 {trading_symbol}: ¥{tp2_price:.2f}")
+                print(f"✅ Take Profit 2 đặt thành công: ¥{tp2_price:,.4f} (30% quantity)")
+                send_notification(f"🎯 TP2 {trading_symbol}: ¥{tp2_price:.4f}")
                 
                 # Thêm TP2 vào danh sách theo dõi
-                add_order_to_monitor(tp2_order['id'], trading_symbol, "TAKE_PROFIT", actual_price)
+                add_order_to_monitor(tp2_order['id'], trading_symbol, "TAKE_PROFIT_2", actual_price)
+            else:
+                print(f"📝 TP2 giống TP1 - Bỏ qua TP2")
                 
         except Exception as tp2_error:
             print(f"⚠️ Không thể đặt TP2: {tp2_error}")
+            send_notification(f"⚠️ Lỗi đặt TP2 cho {trading_symbol}: {tp2_error}")
+        
+        # Thông báo tổng kết orders đã đặt
+        total_orders = len(orders_placed)
+        if total_orders > 0:
+            print(f"✅ Đã đặt {total_orders} lệnh bán thành công cho {trading_symbol}")
+            if oco_success:
+                print(f"   📊 OCO: 70% | TP2: 30%")
+            else:
+                print(f"   📊 SL: 70% | TP1: 40% | TP2: 30%")
+        else:
+            print(f"⚠️ Không đặt được lệnh bán nào cho {trading_symbol}")
+            send_notification(f"⚠️ CẢNH BÁO: Không có lệnh bán nào cho {trading_symbol}", urgent=True)
         
         # 🔥 GỬI EMAIL ĐẶT LỆNH BÁN THÀNH CÔNG
         try:

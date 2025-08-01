@@ -23,8 +23,8 @@
 # }
 #Testnet
 BINANCE_CONFIG = {
-    'apiKey': 'ENQmmQnIRMtL4B1sFS9RBuYkOltJZ7MiLfkQRoD1RXn1Omz3PfTRu84I5XDqgYjQ',  # Thay bằng API key testnet
-    'secret': 'ZIlxj2u2do1Ksl9aMvPyWgQT3BF8WgaJfQEYSrWoOnhNmddyCpBm9ftQ3DvIx4RB',   # Thay bằng secret testnet
+    'apiKey': 'HL4vtEnEMo3M5Ut5TFXKbj3gbwS9WoU5MFtAwiqUkH6fchlbgbaQpp6dZIQvbg6T',  # Thay bằng API key testnet
+    'secret': 'd2c633SMoBaTjPp9z63fPn6TRcsV9n0yoNOB7iBMvRyNxySNJpBx48l0d5edztFO',   # Thay bằng secret testnet
     'sandbox': True,  # PHẢI LÀ True cho testnet
     'enableRateLimit': True,
     'timeout': 30000,

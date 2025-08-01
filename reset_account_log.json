@@ -1,0 +1,307 @@
+{
+  "timestamp": "2025-08-01T14:48:08.884726",
+  "cancelled_orders": 0,
+  "initial_balances": {
+    "BNB": {
+      "free": 0.0006,
+      "used": 0.0,
+      "total": 0.0006
+    },
+    "USDT": {
+      "free": 529112.21439688,
+      "used": 0.0,
+      "total": 529112.21439688
+    },
+    "KMD": {
+      "free": 16758.0,
+      "used": 0.0,
+      "total": 16758.0
+    },
+    "XLM": {
+      "free": 0.1,
+      "used": 0.0,
+      "total": 0.1
+    },
+    "WIN": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "TRY": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "LTO": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "ZAR": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "UAH": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "ALPHA": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "BRL": {
+      "free": 97.0,
+      "used": 0.0,
+      "total": 97.0
+    },
+    "SHIB": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "XEC": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "BTTC": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "BSW": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "LEVER": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "LUNC": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "PLN": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "RON": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "ARS": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "SUI": {
+      "free": 0.04,
+      "used": 0.0,
+      "total": 0.04
+    },
+    "PEPE": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "AEUR": {
+      "free": 440.0,
+      "used": 0.0,
+      "total": 440.0
+    },
+    "1000SATS": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "BONK": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "JPY": {
+      "free": 135.28637,
+      "used": 0.0,
+      "total": 135.28637
+    },
+    "MXN": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "COP": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "CZK": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    }
+  },
+  "final_balances": {
+    "BNB": {
+      "free": 0.0006,
+      "used": 0.0,
+      "total": 0.0006
+    },
+    "USDT": {
+      "free": 529112.21439688,
+      "used": 0.0,
+      "total": 529112.21439688
+    },
+    "KMD": {
+      "free": 16758.0,
+      "used": 0.0,
+      "total": 16758.0
+    },
+    "XLM": {
+      "free": 0.1,
+      "used": 0.0,
+      "total": 0.1
+    },
+    "WIN": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "TRY": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "LTO": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "ZAR": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "UAH": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "ALPHA": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "BRL": {
+      "free": 97.0,
+      "used": 0.0,
+      "total": 97.0
+    },
+    "SHIB": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "XEC": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "BTTC": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "BSW": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "LEVER": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "LUNC": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "PLN": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "RON": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "ARS": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "SUI": {
+      "free": 0.04,
+      "used": 0.0,
+      "total": 0.04
+    },
+    "PEPE": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "AEUR": {
+      "free": 440.0,
+      "used": 0.0,
+      "total": 440.0
+    },
+    "1000SATS": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "BONK": {
+      "free": 18446.0,
+      "used": 0.0,
+      "total": 18446.0
+    },
+    "JPY": {
+      "free": 135.28637,
+      "used": 0.0,
+      "total": 135.28637
+    },
+    "MXN": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "COP": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    },
+    "CZK": {
+      "free": 18466.0,
+      "used": 0.0,
+      "total": 18466.0
+    }
+  },
+  "sell_results": [],
+  "summary": {
+    "initial_jpy": 135.28637,
+    "jpy_from_sales": 0,
+    "final_jpy": 135.28637,
+    "profit": 0.0,
+    "successful_sales": 0,
+    "total_attempted": 28
+  }
+}
