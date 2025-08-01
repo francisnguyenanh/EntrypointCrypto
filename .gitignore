@@ -1,2 +1,52 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Log files
 trading_log.txt
-__pycache__/position_manager.cpython-312.pyc
+*.log
+
+# Data files
+position_data.json
+active_orders.json
+reset_account_log.json
+
+# macOS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backup files
+*.backup*
+*.bak
+*.tmp
+*.temp
+*~
+
+# IDE files
+.vscode/settings.json
+.idea/
+
+# Environment files
+.env
+.venv/
+venv/
+ENV/
+
+# Test files (nếu không cần commit)
+test_*.py
+demo_*.py
+final_test.py
+
+# Windows batch files on macOS
+*.bat
+
+# Cleanup script để bảo trì
+# cleanup.py
