@@ -31,11 +31,12 @@ sl_tp = position_manager.calculate_sl_tp_prices(
 - Hiển thị % lãi/lỗ với chi phí thực tế
 - Hỗ trợ partial sell với FIFO
 
-### 4. **File Size Optimization**
+### **4. File Size Optimization + Active Orders Tracking**
 - Auto cleanup khi file > 50KB
 - Chỉ lưu 10 buy orders mới nhất/position
 - Xóa positions cũ > 30 ngày
 - Manual optimization xuống 5 orders/position
+- **Track active sell orders để tự động update position khi lệnh khớp**
 
 ---
 
@@ -52,6 +53,11 @@ class PositionManager:
     calculate_sl_tp_prices(symbol, sl_percent, tp1_percent, tp2_percent)
     calculate_pnl(symbol, quantity, current_price)
     update_position_after_sell(symbol, quantity, sell_price)
+    
+    # Active Orders Tracking (NEW!)
+    add_sell_order_tracking(symbol, order_id, order_type, quantity, price)
+    check_and_update_filled_orders(exchange_api)
+    cleanup_old_sell_orders()
     
     # Management functions
     get_all_positions()
@@ -76,6 +82,17 @@ Lưu trữ persistent data:
         "timestamp": "2024-01-01T10:00:00"
       }
       // ... max 10 orders
+    ],
+    "active_sell_orders": [
+      {
+        "order_id": "140045935",
+        "order_type": "STOP_LOSS",
+        "quantity": 100.0,
+        "price": 143.99,
+        "status": "ACTIVE",
+        "created_at": "2024-01-01T15:30:00"
+      }
+      // Track sell orders để auto update khi khớp
     ]
   }
 }
@@ -100,7 +117,20 @@ if buy_order_success:
     position_manager.add_buy_order(symbol, quantity, price, order_id)
 ```
 
-### **3. Khi tính SL/TP cho lệnh bán**
+### **3. Khi đặt lệnh bán (SL/TP) - TRACK SELL ORDERS**
+```python
+# Đặt lệnh SL/TP trên exchange
+sl_order = exchange.create_order(symbol, 'stop_loss', quantity, stop_loss_price)
+tp_order = exchange.create_order(symbol, 'take_profit', quantity, tp1_price)  
+
+# Track sell orders để monitor
+position_manager.add_sell_order_tracking(
+    symbol, sl_order['id'], 'STOP_LOSS', quantity, stop_loss_price
+)
+position_manager.add_sell_order_tracking(
+    symbol, tp_order['id'], 'TAKE_PROFIT_1', quantity, tp1_price
+)
+```
 ```python
 take_profit_2 = sl_tp['tp2_price']
 sl_tp = position_manager.calculate_sl_tp_prices(symbol, sl_percent=3, tp1_percent=0.4, tp2_percent=5)
@@ -113,21 +143,20 @@ take_profit_2 = sl_tp['tp2_price']
 place_sell_order_with_sl_tp(symbol, quantity, stop_loss_price, take_profit_1)
 ```
 
-### **4. Khi hiển thị inventory**
+### **4. Bot Monitoring Loop - AUTO UPDATE POSITIONS**
 ```python
-def show_inventory_with_pnl():
-    positions = position_manager.get_all_positions()
-    
-    for symbol, position in positions.items():
-        current_price = get_current_price(symbol)  # Từ exchange API
-        pnl = position_manager.calculate_pnl(symbol, position['total_quantity'], current_price)
+def bot_monitoring_cycle():
+    while True:
+        # Kiểm tra lệnh bán đã khớp chưa và auto update positions
+        updated_positions = position_manager.check_and_update_filled_orders(exchange)
         
-        print(f"""
-        {symbol.replace('/JPY', '')}:
-        📦 {position['total_quantity']:.6f} @ ¥{position['average_price']:.4f}
-        💰 P&L: {pnl['profit_loss']:+.2f} JPY ({pnl['profit_loss_percent']:+.2f}%)
-        💸 Investment: ¥{position['total_cost']:,.2f}
-        """)
+        if updated_positions:
+            print(f"🎉 Lệnh bán khớp cho: {updated_positions}")
+            # Phân tích thị trường và đặt lệnh mua mới
+            for coin in updated_positions:
+                analyze_and_place_new_buy_order(coin)
+        
+        time.sleep(TRADING_CONFIG['monitor_interval'])
 ```
 
 ### **5. Khi bán coin**

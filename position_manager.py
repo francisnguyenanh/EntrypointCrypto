@@ -68,6 +68,7 @@ class PositionManager:
                     'total_cost': quantity * price,
                     'average_price': price,
                     'buy_orders': [],
+                    'active_sell_orders': [],  # Track active sell orders
                     'created_at': datetime.now().isoformat(),
                     'updated_at': datetime.now().isoformat()
                 }
@@ -339,6 +340,219 @@ class PositionManager:
         except Exception as e:
             print(f"❌ Lỗi cập nhật position sau khi bán: {e}")
             return False
+
+    def add_sell_order_tracking(self, symbol, order_id, order_type, quantity, price):
+        """
+        Thêm tracking cho sell order (SL/TP)
+        
+        Args:
+            symbol: Symbol coin 
+            order_id: ID của sell order
+            order_type: 'STOP_LOSS' hoặc 'TAKE_PROFIT_1' hoặc 'TAKE_PROFIT_2'
+            quantity: Số lượng bán
+            price: Giá bán
+        """
+        try:
+            coin = symbol.split('/')[0]
+            if coin not in self.positions:
+                print(f"❌ Không tìm thấy position cho {coin}")
+                return False
+            
+            # Đảm bảo position có active_sell_orders field
+            if 'active_sell_orders' not in self.positions[coin]:
+                self.positions[coin]['active_sell_orders'] = []
+            
+            sell_order_info = {
+                'order_id': str(order_id),
+                'order_type': order_type,
+                'quantity': quantity,
+                'price': price,
+                'status': 'ACTIVE',
+                'created_at': datetime.now().isoformat()
+            }
+            
+            self.positions[coin]['active_sell_orders'].append(sell_order_info)
+            self.positions[coin]['updated_at'] = datetime.now().isoformat()
+            
+            # Lưu file
+            self.save_positions()
+            
+            print(f"📊 Đã track sell order {order_id} cho {coin}: {order_type} @ ¥{price}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Lỗi track sell order: {e}")
+            return False
+
+    def check_and_sync_with_exchange(self, exchange_api):
+        """
+        Kiểm tra và đồng bộ với exchange - Handle cả auto fill và manual intervention
+        
+        Args:
+            exchange_api: Đối tượng API để kiểm tra trạng thái lệnh
+        """
+        try:
+            updated_positions = []
+            manual_interventions = []
+            
+            for coin, position in self.positions.items():
+                if not position.get('active_sell_orders'):
+                    continue
+                
+                # Kiểm tra từng sell order
+                for sell_order in position['active_sell_orders'][:]:  # Copy list để safe remove
+                    if sell_order.get('status') != 'ACTIVE':
+                        continue
+                    
+                    order_id = sell_order['order_id']
+                    
+                    try:
+                        # Kiểm tra order có còn tồn tại trên exchange không
+                        order_status = exchange_api.fetch_order(order_id, position['symbol'])
+                        
+                        if order_status['status'] == 'closed':
+                            # Case 1: Lệnh đã tự động khớp
+                            filled_quantity = sell_order['quantity']
+                            filled_price = order_status.get('average', sell_order['price'])
+                            
+                            print(f"✅ AUTO FILL: {order_id} - {filled_quantity} {coin} @ ¥{filled_price}")
+                            
+                            # Update position sau khi bán
+                            self.update_position_after_sell(
+                                position['symbol'], 
+                                filled_quantity, 
+                                filled_price
+                            )
+                            
+                            # Đánh dấu order đã filled
+                            sell_order['status'] = 'FILLED'
+                            sell_order['filled_at'] = datetime.now().isoformat()
+                            sell_order['filled_price'] = filled_price
+                            sell_order['fill_type'] = 'AUTO'
+                            
+                            updated_positions.append(coin)
+                            
+                        elif order_status['status'] in ['canceled', 'expired']:
+                            # Order bị cancel/expire
+                            print(f"⚠️ ORDER CANCELED: {order_id} - {coin}")
+                            sell_order['status'] = 'CANCELED'
+                            sell_order['canceled_at'] = datetime.now().isoformat()
+                            
+                    except Exception as order_error:
+                        # Case 2: Order không tồn tại trên exchange = Manual intervention
+                        error_msg = str(order_error).lower()
+                        if "does not exist" in error_msg or "not found" in error_msg or "order" in error_msg:
+                            
+                            print(f"🔧 MANUAL INTERVENTION DETECTED: Order {order_id} không tồn tại trên exchange")
+                            print(f"   → Có thể: 1) Lệnh đã khớp thủ công, 2) User đã hủy lệnh")
+                            
+                            # Kiểm tra balance để xác định có bán hay không
+                            try:
+                                current_balance = exchange_api.fetch_balance()[coin]['free']
+                                expected_balance = position['total_quantity']
+                                
+                                if current_balance < expected_balance:
+                                    # Balance giảm = có bán coin
+                                    sold_quantity = expected_balance - current_balance
+                                    
+                                    print(f"   💰 Balance check: Đã bán {sold_quantity} {coin}")
+                                    print(f"   📊 Expected: {expected_balance}, Actual: {current_balance}")
+                                    
+                                    # Lấy giá hiện tại làm estimate
+                                    current_price = exchange_api.fetch_ticker(position['symbol'])['last']
+                                    
+                                    # Update position
+                                    self.update_position_after_sell(
+                                        position['symbol'],
+                                        sold_quantity,
+                                        current_price
+                                    )
+                                    
+                                    # Đánh dấu manual intervention
+                                    sell_order['status'] = 'MANUAL_FILLED'
+                                    sell_order['filled_at'] = datetime.now().isoformat()
+                                    sell_order['filled_price'] = current_price
+                                    sell_order['fill_type'] = 'MANUAL'
+                                    sell_order['note'] = 'Detected via balance check'
+                                    
+                                    manual_interventions.append({
+                                        'coin': coin,
+                                        'action': 'SELL',
+                                        'quantity': sold_quantity,
+                                        'estimated_price': current_price,
+                                        'detection_method': 'balance_check'
+                                    })
+                                    
+                                    updated_positions.append(coin)
+                                    
+                                else:
+                                    # Balance không đổi = chỉ hủy lệnh
+                                    print(f"   ❌ Order bị hủy, không có giao dịch")
+                                    sell_order['status'] = 'MANUAL_CANCELED'
+                                    sell_order['canceled_at'] = datetime.now().isoformat()
+                                    sell_order['fill_type'] = 'MANUAL'
+                                    
+                                    manual_interventions.append({
+                                        'coin': coin,
+                                        'action': 'CANCEL',
+                                        'order_id': order_id,
+                                        'detection_method': 'order_not_found'
+                                    })
+                                    
+                            except Exception as balance_error:
+                                print(f"   ❌ Không thể kiểm tra balance: {balance_error}")
+                                # Fallback: đánh dấu unknown
+                                sell_order['status'] = 'UNKNOWN'
+                                sell_order['note'] = 'Manual intervention detected but could not verify'
+                        else:
+                            print(f"⚠️ Lỗi kiểm tra order {order_id}: {order_error}")
+                            continue
+            
+            # Cleanup và save
+            self.cleanup_old_sell_orders()
+            
+            # Report results
+            if updated_positions:
+                print(f"\n🔄 POSITIONS UPDATED: {updated_positions}")
+            
+            if manual_interventions:
+                print(f"\n🔧 MANUAL INTERVENTIONS DETECTED:")
+                for intervention in manual_interventions:
+                    print(f"   - {intervention['coin']}: {intervention['action']}")
+            
+            return {
+                'updated_positions': updated_positions,
+                'manual_interventions': manual_interventions
+            }
+            
+        except Exception as e:
+            print(f"❌ Lỗi sync với exchange: {e}")
+            return {'updated_positions': [], 'manual_interventions': []}
+
+    def check_and_update_filled_orders(self, exchange_api):
+        """
+        Wrapper method để backward compatibility
+        """
+        result = self.check_and_sync_with_exchange(exchange_api)
+        return result['updated_positions']
+
+    def cleanup_old_sell_orders(self):
+        """Cleanup sell orders cũ (giữ 10 orders gần nhất)"""
+        try:
+            for coin, position in self.positions.items():
+                sell_orders = position.get('active_sell_orders', [])
+                
+                if len(sell_orders) > 10:
+                    # Sắp xếp theo thời gian tạo, giữ 10 orders mới nhất
+                    sorted_orders = sorted(sell_orders, 
+                                         key=lambda x: x.get('created_at', ''), 
+                                         reverse=True)
+                    position['active_sell_orders'] = sorted_orders[:10]
+                    
+            self.save_positions()
+            
+        except Exception as e:
+            print(f"❌ Lỗi cleanup sell orders: {e}")
 
     def get_all_positions(self):
         """Lấy tất cả positions hiện có"""
