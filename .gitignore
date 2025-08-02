@@ -10,8 +10,8 @@ trading_log.txt
 *.log
 
 # Data files
-#position_data.json
-#active_orders.json
+position_data.json
+active_orders.json
 reset_account_log.json
 
 # macOS files

@@ -926,7 +926,10 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                 return {'status': 'failed', 'error': 'balance_check_error'}
         
         print(f"💰 Số dư: ¥{balance_check['current_balance']:,.2f}")
-        print(f"🎯 Đặt lệnh {trading_symbol}: Entry ¥{entry_price:.2f} | SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f}")
+        print(f"🎯 Đặt lệnh {trading_symbol}:")
+        print(f"   📊 Entry: ¥{entry_price:.4f} | SL: ¥{stop_loss:.4f} | TP: ¥{tp_price:.4f}")
+        print(f"   📈 Target profit: {((tp_price / entry_price - 1) * 100):.2f}%")
+        print(f"   🛡️ Risk: {((entry_price - stop_loss) / entry_price * 100):.2f}%")
         
         # 1. Đặt lệnh mua market
         try:
@@ -938,7 +941,7 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
             
             print(f"✅ MUA THÀNH CÔNG: {actual_quantity:.6f} @ ¥{actual_price:.2f}")
             
-            # Lưu thông tin mua vào position manager
+            # Lưu thông tin mua vào position manager (KHÔNG OVERRIDE TP/SL)
             position_info = position_manager.add_buy_order(
                 trading_symbol, 
                 actual_quantity, 
@@ -946,16 +949,11 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                 buy_order['id']
             )
             
-            # Tính lại SL/TP dựa trên giá trung bình từ position manager
-            if position_info:
-                avg_based_prices = position_manager.calculate_sl_tp_prices(trading_symbol)
-                if avg_based_prices:
-                    # Sử dụng giá SL/TP từ position manager (dựa trên giá trung bình)
-                    stop_loss = avg_based_prices['stop_loss']
-                    tp_price = avg_based_prices['tp1_price']  # Chỉ dùng TP1 làm TP duy nhất
-                    
-                    print(f"📊 SL/TP dựa trên giá TB ¥{avg_based_prices['average_entry']:.4f}:")
-                    print(f"   🛡️ SL: ¥{stop_loss:.4f} | 🎯 TP: ¥{tp_price:.4f}")
+            # GIỮ NGUYÊN TP/SL ĐÃ TÍNH TỪ STRATEGY ANALYSIS
+            # Không override bằng position manager để tránh TP quá cao
+            print(f"📊 Sử dụng TP/SL từ strategy analysis:")
+            print(f"   🎯 Entry: ¥{actual_price:.4f} | 🛡️ SL: ¥{stop_loss:.4f} | 📈 TP: ¥{tp_price:.4f}")
+            print(f"� Strategy TP: {((tp_price / actual_price - 1) * 100):.2f}% (tối ưu cho market conditions)")
             
         except Exception as buy_error:
             error_str = str(buy_error).lower()
@@ -1079,12 +1077,16 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                         price=tp_price
                     )
                     orders_placed.append(tp_order)
-                    print(f"✅ TP: ¥{tp_price:.2f} (Quantity: {total_reserve:.6f})")
+                    print(f"✅ TP: ¥{tp_price:.4f} (Quantity: {total_reserve:.6f})")
                     add_order_to_monitor(tp_order['id'], trading_symbol, "TAKE_PROFIT", actual_price)
                     
-                    # Thông báo về SL thủ công
-                    print(f"🛡️ SL Target: ¥{stop_loss:.2f}")
+                    # Thông báo về SL thủ công với thông tin chi tiết
+                    profit_pct = ((tp_price / actual_price - 1) * 100)
+                    risk_pct = ((actual_price - stop_loss) / actual_price * 100)
+                    print(f"🛡️ SL Target: ¥{stop_loss:.4f} (-{risk_pct:.2f}%)")
+                    print(f"📊 TP Target: +{profit_pct:.2f}% | Risk: -{risk_pct:.2f}% | R/R: {profit_pct/risk_pct:.2f}")
                     print(f"💡 Monitor giá và bán thủ công khi giá xuống dưới SL")
+                    print(f"📱 Theo dõi: {trading_symbol} price < ¥{stop_loss:.4f} → Market sell {total_reserve:.6f}")
                     
                 except Exception as tp_error:
                     print(f"❌ Lỗi đặt TP: {tp_error}")
@@ -4661,6 +4663,42 @@ initialize_order_monitoring()
 # ======================== MAIN ENTRY POINT ========================
 
 # Hàm tóm tắt tất cả tính năng mới được thêm
+def check_manual_stop_loss_triggers():
+    """
+    Kiểm tra và thông báo khi giá chạm manual stop loss targets
+    """
+    try:
+        # Đọc active orders để tìm positions cần monitor SL
+        if not ACTIVE_ORDERS:
+            return
+            
+        for order_id, order_info in ACTIVE_ORDERS.items():
+            if order_info.get('order_type') == 'TAKE_PROFIT':
+                symbol = order_info['symbol']
+                buy_price = order_info.get('buy_price', 0)
+                
+                if buy_price > 0:
+                    # Tính SL target (giả sử -0.8% cho systematic, -0.6% cho scalping)
+                    sl_target = buy_price * 0.992  # -0.8% default
+                    
+                    try:
+                        current_price = get_current_jpy_price(symbol)
+                        if current_price and current_price <= sl_target:
+                            print(f"🚨 MANUAL SL TRIGGER for {symbol}:")
+                            print(f"   📉 Current: ¥{current_price:.4f} ≤ SL Target: ¥{sl_target:.4f}")
+                            print(f"   ⚠️ RECOMMEND: Market sell {order_info.get('amount', 'N/A')} {symbol.split('/')[0]}")
+                            
+                            # Gửi notification urgent
+                            send_notification(
+                                f"🚨 Manual SL Trigger: {symbol} @ ¥{current_price:.4f} ≤ ¥{sl_target:.4f}",
+                                urgent=True
+                            )
+                    except Exception:
+                        pass
+                        
+    except Exception as e:
+        print(f"⚠️ Error checking manual SL: {e}")
+
 def validate_trading_balance(min_balance=1000, currency='JPY'):
     """
     Validate that trading balance is sufficient
