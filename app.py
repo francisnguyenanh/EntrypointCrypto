@@ -1651,6 +1651,119 @@ def analyze_order_book(order_book):
         'price_range_sell': price_range_sell
     }
 
+# Hàm validate minimum trading requirements cho Binance
+def validate_minimum_quantity(symbol, quantity):
+    """Kiểm tra quantity có đạt minimum requirement không"""
+    try:
+        # Lấy thông tin symbol từ Binance
+        markets = binance.load_markets()
+        if symbol not in markets:
+            return {
+                'valid': False,
+                'reason': f'Symbol {symbol} không tồn tại',
+                'suggestion': 'Kiểm tra lại symbol'
+            }
+        
+        market_info = markets[symbol]
+        min_amount = market_info.get('limits', {}).get('amount', {}).get('min', 0)
+        
+        if quantity < min_amount:
+            return {
+                'valid': False,
+                'reason': f'Quantity {quantity:.6f} < minimum {min_amount}',
+                'suggestion': f'Cần ít nhất {min_amount} {symbol.split("/")[0]} để bán'
+            }
+        
+        return {'valid': True, 'reason': 'Quantity validation passed'}
+        
+    except Exception as e:
+        return {
+            'valid': False,
+            'reason': f'Lỗi validation: {e}',
+            'suggestion': 'Thử lại sau hoặc bán thủ công'
+        }
+
+def validate_minimum_notional(symbol, quantity, price):
+    """Kiểm tra notional value có đạt minimum requirement không"""
+    try:
+        # Lấy thông tin symbol từ Binance
+        markets = binance.load_markets()
+        if symbol not in markets:
+            return {
+                'valid': False,
+                'reason': f'Symbol {symbol} không tồn tại',
+                'suggestion': 'Kiểm tra lại symbol'
+            }
+        
+        market_info = markets[symbol]
+        min_notional = market_info.get('limits', {}).get('cost', {}).get('min', 1000)  # Default 1000 JPY
+        
+        notional_value = quantity * price
+        
+        if notional_value < min_notional:
+            return {
+                'valid': False,
+                'reason': f'Giá trị giao dịch ¥{notional_value:.2f} < minimum ¥{min_notional:.2f}',
+                'suggestion': f'Cần ít nhất ¥{min_notional:.2f} để giao dịch'
+            }
+        
+        return {'valid': True, 'reason': 'Notional validation passed'}
+        
+    except Exception as e:
+        return {
+            'valid': False,
+            'reason': f'Lỗi validation: {e}',
+            'suggestion': 'Thử lại sau hoặc bán thủ công'
+        }
+
+def adjust_quantity_precision(symbol, quantity):
+    """Điều chỉnh quantity theo precision requirement của symbol"""
+    try:
+        # Lấy thông tin symbol từ Binance
+        markets = binance.load_markets()
+        if symbol not in markets:
+            return quantity
+        
+        market_info = markets[symbol]
+        precision = market_info.get('precision', {}).get('amount', 6)
+        
+        # Làm tròn quantity theo precision
+        adjusted = round(quantity, precision)
+        
+        return adjusted
+        
+    except Exception as e:
+        print(f"⚠️ Lỗi adjust precision: {e}")
+        return quantity
+
+# Hàm tổng hợp kiểm tra có thể bán coin không
+def can_sell_coin(symbol, quantity, price):
+    """Kiểm tra tổng hợp xem có thể bán coin không"""
+    qty_check = validate_minimum_quantity(symbol, quantity)
+    notional_check = validate_minimum_notional(symbol, quantity, price)
+    
+    if not qty_check['valid']:
+        return {
+            'can_sell': False,
+            'reason': qty_check['reason'],
+            'suggestion': qty_check['suggestion'],
+            'type': 'QUANTITY_TOO_SMALL'
+        }
+    
+    if not notional_check['valid']:
+        return {
+            'can_sell': False,
+            'reason': notional_check['reason'],
+            'suggestion': notional_check['suggestion'],
+            'type': 'NOTIONAL_TOO_SMALL'
+        }
+    
+    return {
+        'can_sell': True,
+        'reason': 'All validations passed',
+        'adjusted_quantity': adjust_quantity_precision(symbol, quantity)
+    }
+
 # Hàm phát hiện và phân tích downtrend chuyên sâu
 def detect_comprehensive_downtrend(df, symbol):
     """
@@ -2062,8 +2175,6 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
     if downtrend_detected:
         print(f"⚠️ DOWNTREND DETECTED for {symbol}:")
         print(f"   🔻 Strength: {downtrend_strength} (Confidence: {confidence_score:.1f}%)")
-        print(f"   📊 Risk Level: {risk_level}")
-        print(f"   📋 Signals: {', '.join(downtrend_reasons[:3])}...")  # Show first 3 reasons
         
         # STRONG downtrend - từ chối hoàn toàn
         if downtrend_strength == "STRONG":
@@ -2072,9 +2183,7 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
         
         # MODERATE downtrend - yêu cầu cao hơn
         elif downtrend_strength == "MODERATE":
-            print(f"⚠️ CAUTION: {symbol} - Moderate downtrend, applying strict filters")
             if order_book_analysis['bid_ask_ratio'] < 2.0:  # Yêu cầu bid/ask ratio cao hơn
-                print(f"❌ REJECTED: Bid/Ask ratio {order_book_analysis['bid_ask_ratio']:.2f} < 2.0 in moderate downtrend")
                 return None
     
     opportunity = {
@@ -2210,111 +2319,6 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
         print(f"   R/R: {risk_reward_ratio:.2f} | Confidence: {final_confidence}/100")
     
     return opportunity
-
-# Hàm tìm cơ hội giao dịch từ sổ lệnh cho tất cả coins - TỐI ƯU TỐC ĐỘ
-def find_orderbook_opportunities_placeholder():
-    """Placeholder function - will be implemented later"""
-    pass
-
-# Hàm demo phát hiện downtrend (để test)
-def demo_downtrend_detection(symbol_list=None):
-    """
-    Demo function để test tính năng phát hiện downtrend
-    """
-    if symbol_list is None:
-        symbol_list = ['ADA/JPY', 'XRP/JPY', 'XLM/JPY']
-    
-    print("🔍 DEMO: DOWNTREND DETECTION SYSTEM")
-    print("=" * 60)
-    
-    for symbol in symbol_list:
-        try:
-            print(f"\n📊 Analyzing {symbol}...")
-            
-            # Lấy dữ liệu
-            df = get_crypto_data(symbol, timeframe='30m', limit=100)
-            if df is None or len(df) < 50:
-                print(f"❌ {symbol}: Insufficient data")
-                continue
-            
-            # Phát hiện downtrend
-            downtrend_analysis = detect_comprehensive_downtrend(df, symbol)
-            
-            # Hiển thị kết quả
-            print(f"📈 Current Price: ¥{df['close'].iloc[-1]:.4f}")
-            print(f"🔻 Downtrend Detected: {'YES' if downtrend_analysis['detected'] else 'NO'}")
-            print(f"💪 Strength: {downtrend_analysis['strength']}")
-            print(f"🎯 Confidence: {downtrend_analysis['confidence']:.1f}%")
-            print(f"⚠️ Risk Level: {downtrend_analysis['risk_level']}")
-            print(f"💡 Recommendation: {downtrend_analysis['recommendation']}")
-            
-            if downtrend_analysis['detected']:
-                print(f"📋 Key Signals:")
-                for key, value in downtrend_analysis['signals'].items():
-                    if value > 0:
-                        print(f"   • {key.replace('_', ' ').title()}: {value} points")
-                
-                print(f"🔍 Top Reasons:")
-                for i, reason in enumerate(downtrend_analysis['reasons'][:5], 1):
-                    print(f"   {i}. {reason}")
-            
-            # Test orderbook opportunity với downtrend protection
-            order_book = get_order_book(symbol, limit=20)
-            order_book_analysis = analyze_order_book(order_book)
-            
-            if order_book_analysis:
-                opportunity = analyze_orderbook_opportunity(symbol, df['close'].iloc[-1], order_book_analysis, df)
-                if opportunity:
-                    print(f"✅ Trading Opportunity: ACCEPTED")
-                    print(f"   🎯 Entry: ¥{opportunity['optimal_entry']:.4f}")
-                    print(f"   📈 TP: ¥{opportunity['tp_price']:.4f}")
-                    print(f"   📉 SL: ¥{opportunity['stop_loss']:.4f}")
-                    print(f"   ⚖️ Risk/Reward: {opportunity['risk_reward_ratio']:.2f}")
-                    print(f"   🎯 Confidence: {opportunity['confidence_score']}/100")
-                else:
-                    print(f"❌ Trading Opportunity: REJECTED")
-            
-            print("-" * 40)
-            
-        except Exception as e:
-            print(f"❌ Error analyzing {symbol}: {e}")
-    
-    print(f"\n✅ Demo completed!")
-
-# Hàm hiển thị thông tin hệ thống downtrend protection
-def show_downtrend_protection_info():
-    """Hiển thị thông tin về hệ thống bảo vệ downtrend"""
-    print("🛡️ DOWNTREND PROTECTION SYSTEM")
-    print("=" * 50)
-    print("📊 TECHNICAL INDICATORS ANALYZED:")
-    print("   • Moving Averages (SMA 10, 20, 50)")
-    print("   • RSI (14-period)")
-    print("   • MACD with Signal Line")
-    print("   • Bollinger Bands")
-    print("   • Price Action Patterns")
-    print("   • Volume Analysis")
-    print()
-    print("🔍 DETECTION LEVELS:")
-    print("   • WEAK: 6-9 points (25-37% confidence)")
-    print("   • MODERATE: 10-15 points (42-62% confidence)")  
-    print("   • STRONG: 16+ points (67%+ confidence)")
-    print()
-    print("⚖️ RISK MANAGEMENT:")
-    print("   • STRONG: Completely avoid trading")
-    print("   • MODERATE: Require 2.0+ bid/ask ratio")
-    print("   • WEAK: Apply 20-point confidence penalty")
-    print()
-    print("💰 DYNAMIC ADJUSTMENTS:")
-    print("   • Entry Buffer: +0.1% to +0.5% based on strength")
-    print("   • Take Profit: 0.25% to 0.4% + fees")
-    print("   • Stop Loss: -0.4% to -0.8% based on strength")
-    print("   • Confidence Required: 50-85 based on conditions")
-    print()
-    print("🎯 USAGE:")
-    print("   • Call demo_downtrend_detection() to test")
-    print("   • Integrated in analyze_orderbook_opportunity()")
-    print("   • Automatic protection in trading logic")
-    print("=" * 50)
 
 # Hàm tóm tắt tất cả tính năng mới được thêm
 def find_orderbook_opportunities(timeframe='30m', min_confidence=50):
@@ -2765,45 +2769,9 @@ def emergency_stop():
     TRADING_CONFIG['emergency_stop'] = True
     send_system_error_notification("Emergency stop activated manually", "EMERGENCY_STOP")
 
-def get_bot_status():
-    """Lấy trạng thái hiện tại của bot"""
-    return {
-        'bot_running': BOT_RUNNING,
-        'monitor_running': MONITOR_RUNNING,
-        'emergency_stop': TRADING_CONFIG.get('emergency_stop', False),
-        'maintenance_mode': TRADING_CONFIG.get('maintenance_mode', False),
-        'active_orders_count': len(ACTIVE_ORDERS),
-        'system_error_count': SYSTEM_ERROR_COUNT,
-        'last_error_time': LAST_ERROR_TIME
-    }
 
-def print_bot_status():
-    """In trạng thái bot ra console"""
-    status = get_bot_status()
-    print("  BOT STATUS")
-    print("="*50)
-    print(f"🟢 Bot Running: {'YES' if status['bot_running'] else 'NO'}")
-    print(f" Monitor Running: {'YES' if status['monitor_running'] else 'NO'}")
-    print(f"🚨 Emergency Stop: {'YES' if status['emergency_stop'] else 'NO'}")
-    print(f"🔧 Maintenance Mode: {'YES' if status['maintenance_mode'] else 'NO'}")
-    print(f"  Active Orders: {status['active_orders_count']}")
-    print(f"⚠️ System Errors: {status['system_error_count']}")
-    if status['last_error_time']:
-        print(f"🕐 Last Error: {datetime.fromtimestamp(status['last_error_time']).strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*50)
 
-def restart_bot():
-    """Restart bot với cleanup"""
-    print(" Restarting bot...")
-    stop_bot_gracefully()
-    time.sleep(3)  # Chờ cleanup
-    
-    # Reset các biến
-    global BOT_RUNNING, MONITOR_RUNNING, SYSTEM_ERROR_COUNT
-    BOT_RUNNING = True
-    MONITOR_RUNNING = False
-    SYSTEM_ERROR_COUNT = 0
-    TRADING_CONFIG['emergency_stop'] = False
+
     
     print("✅ Bot restart completed")
     run_bot_continuously()
@@ -3452,6 +3420,311 @@ def find_coins_with_auto_adjust(timeframe='30m'):
     print(f"⚠️ Sau tất cả các bước điều chỉnh, chỉ tìm thấy {len(results)} coin(s).")
     return results
 
+# Hàm thực hiện quy trình trading theo yêu cầu
+def execute_systematic_trading():
+    """
+    Thực hiện quy trình trading theo trình tự:
+    1. Khởi động hệ thống
+    2. Lấy danh sách lệnh cũ, coin đang tồn kho
+    3. Phân tích cơ hội mới, chỉ cần tìm ra 1 coin phù hợp nhất
+    4. Phán đoán downtrend trên khung 30m cho coin ở bước 2, 3
+    5. Cập nhật dữ liệu vào file active_order, position_data
+    """
+    try:
+        print("🚀 SYSTEMATIC TRADING")
+        
+        # BƯỚC 1: KHỞI ĐỘNG HỆ THỐNG
+        global BOT_RUNNING, ACTIVE_ORDERS
+        
+        if not BOT_RUNNING:
+            print("❌ Bot đã dừng")
+            return
+        
+        # Kiểm tra kết nối API
+        try:
+            balance = binance.fetch_balance()
+            jpy_balance = balance['JPY']['free'] if 'JPY' in balance else 0
+            print(f"💰 Số dư: ¥{jpy_balance:,.2f}")
+        except Exception as e:
+            print(f"❌ Lỗi API: {e}")
+            return
+        
+        # Load active orders từ file
+        load_active_orders_from_file()
+        
+        # BƯỚC 2: KIỂM TRA LỆNH CŨ VÀ TỒN KHO
+        print("📦 Kiểm tra tồn kho")
+        
+        # 2.1 Kiểm tra lệnh cũ - PHƯƠNG PHÁP TỐI ƯU
+        old_orders = []
+        inventory_coins = []
+        
+        try:
+            # Phương pháp 1: Lấy từ active orders trong memory (nhanh nhất)
+            if ACTIVE_ORDERS:
+                for order_id, order_info in ACTIVE_ORDERS.items():
+                    old_orders.append({
+                        'id': order_id,
+                        'symbol': order_info['symbol'],
+                        'type': order_info.get('order_type', 'limit'),
+                        'side': 'sell',  # ACTIVE_ORDERS chủ yếu là lệnh bán
+                        'amount': order_info.get('amount', 0),
+                        'price': order_info.get('sell_price', 0),
+                        'status': 'open'
+                    })
+            
+            # Phương pháp 2: Nếu cần kiểm tra thêm từ exchange (tùy chọn)
+            if len(old_orders) == 0:  # Chỉ query exchange nếu memory trống
+                # Tắt cảnh báo rate limit cho fetch_open_orders()
+                if hasattr(binance, 'options'):
+                    binance.options["warnOnFetchOpenOrdersWithoutSymbol"] = False
+                
+                # Lấy open orders từ exchange (đã tắt warning)
+                open_orders = binance.fetch_open_orders()
+                for order in open_orders:
+                    old_orders.append({
+                        'id': order['id'],
+                        'symbol': order['symbol'],
+                        'type': order['type'],
+                        'side': order['side'],
+                        'amount': order['amount'],
+                        'price': order['price'],
+                        'status': order['status']
+                    })
+            
+        except Exception as e:
+            print(f"⚠️ Lỗi lấy orders: {e}")
+            # Fallback: chỉ dùng ACTIVE_ORDERS
+            if ACTIVE_ORDERS:
+                pass
+        
+        # 2.2 Kiểm tra coin tồn kho
+        try:
+            balance = binance.fetch_balance()
+            for coin, balance_info in balance.items():
+                if coin in ['JPY', 'USDT', 'free', 'used', 'total', 'info']:
+                    continue
+                if not isinstance(balance_info, dict):
+                    continue
+                    
+                free_balance = balance_info.get('free', 0)
+                if free_balance > 0:
+                    symbol = f"{coin}/JPY"
+                    try:
+                        current_price = get_current_jpy_price(symbol)
+                        if current_price:
+                            inventory_coins.append({
+                                'coin': coin,
+                                'symbol': symbol,
+                                'quantity': free_balance,
+                                'current_price': current_price,
+                                'value_jpy': free_balance * current_price
+                            })
+                    except Exception:
+                        pass
+            
+            total_inventory_value = sum(coin['value_jpy'] for coin in inventory_coins)
+            if inventory_coins:
+                print(f"💰 {len(inventory_coins)} coin tồn kho: ¥{total_inventory_value:,.2f}")
+                
+        except Exception as e:
+            print(f"⚠️ Lỗi kiểm tra tồn kho: {e}")
+        
+        # BƯỚC 3: PHÂN TÍCH CƠ HỘI MỚI
+        print("🔍 Phân tích cơ hội mới")
+        
+        best_opportunity = None
+        jpy_pairs = get_jpy_pairs()
+        
+        opportunities = []
+        for symbol in jpy_pairs:
+            try:
+                # Lấy dữ liệu 30m (theo yêu cầu)
+                df_30m = get_crypto_data(symbol, timeframe='30m', limit=200)
+                if df_30m is None or len(df_30m) < 50:
+                    continue
+                
+                # Phân tích order book
+                order_book = get_order_book(symbol, limit=20)
+                order_book_analysis = analyze_order_book(order_book)
+                if not order_book_analysis:
+                    continue
+                
+                # Đánh giá cơ hội
+                current_price = df_30m['close'].iloc[-1]
+                opportunity = analyze_orderbook_opportunity(
+                    symbol, current_price, order_book_analysis, df_30m
+                )
+                
+                if opportunity:
+                    opportunities.append(opportunity)
+                    
+            except Exception as e:
+                continue
+        
+        # Chọn cơ hội tốt nhất
+        if opportunities:
+            best_opportunity = max(opportunities, key=lambda x: x.get('confidence_score', 0))
+            print(f"🎯 Coin tốt nhất: {best_opportunity['coin']} ({best_opportunity.get('confidence_score', 0):.1f}%)")
+        else:
+            print("❌ Không có cơ hội phù hợp")
+        
+        # BƯỚC 4: PHÂN TÍCH DOWNTREND 30M
+        print("📉 Phân tích downtrend")
+        
+        downtrend_results = {}
+        
+        # 4.1 Phân tích downtrend cho coin tồn kho
+        for coin_info in inventory_coins:
+            symbol = coin_info['symbol']
+            try:
+                df_30m = get_crypto_data(symbol, timeframe='30m', limit=200)
+                if df_30m is not None and len(df_30m) >= 50:
+                    downtrend_analysis = detect_comprehensive_downtrend(df_30m, symbol)
+                    downtrend_results[symbol] = downtrend_analysis
+                    
+                    status = "🔻" if downtrend_analysis['detected'] else "✅"
+                    strength = downtrend_analysis['strength']
+                    
+                    print(f"   {coin_info['coin']}: {status} {strength}")
+            except Exception as e:
+                pass
+        
+        # 4.2 Phân tích downtrend cho coin cơ hội mới
+        if best_opportunity:
+            new_coin_symbol = f"{best_opportunity['coin']}/JPY"
+            try:
+                df_30m = get_crypto_data(new_coin_symbol, timeframe='30m', limit=200)
+                if df_30m is not None and len(df_30m) >= 50:
+                    downtrend_analysis = detect_comprehensive_downtrend(df_30m, new_coin_symbol)
+                    downtrend_results[new_coin_symbol] = downtrend_analysis
+                    
+                    status = "🔻" if downtrend_analysis['detected'] else "✅"
+                    strength = downtrend_analysis['strength']
+                    
+                    print(f"   {best_opportunity['coin']} (mới): {status} {strength}")
+            except Exception as e:
+                pass
+        
+        # BƯỚC 5: THỰC HIỆN TRADING
+        print("💼 Thực hiện trading")
+        
+        # 5.1 Xử lý coin tồn kho theo downtrend với validation
+        coins_sold = 0
+        total_sold_value = 0
+        
+        for coin_info in inventory_coins:
+            symbol = coin_info['symbol']
+            downtrend_analysis = downtrend_results.get(symbol)
+            
+            if downtrend_analysis and downtrend_analysis['detected']:
+                strength = downtrend_analysis['strength']
+                quantity = coin_info['quantity']
+                current_price = coin_info['current_price']
+                
+                # Kiểm tra có thể bán không
+                sell_check = can_sell_coin(symbol, quantity * 0.995, current_price)  # 0.5% buffer
+                
+                if not sell_check['can_sell']:
+                    print(f"⚠️ {symbol} đang downtrend ({strength}) → KHÔNG THỂ BÁN")
+                    print(f"   🔧 Loại lỗi: {sell_check['type']}")
+                    
+                    # Gợi ý giải pháp cụ thể
+                    if sell_check['type'] == 'QUANTITY_TOO_SMALL':
+                        print(f"   💰 Số lượng hiện có: {quantity:.6f}, cần tối thiểu để bán")
+                    continue
+                
+                print(f"🔻 {symbol} đang downtrend ({strength}) → BÁN")
+                
+                try:
+                    # Sử dụng adjusted quantity từ validation
+                    adjusted_quantity = sell_check['adjusted_quantity']
+                    
+                    sell_order = binance.create_market_sell_order(symbol, adjusted_quantity)
+                    
+                    actual_quantity = float(sell_order['filled'])
+                    actual_price = float(sell_order['average']) if sell_order['average'] else current_price
+                    sold_value = actual_quantity * actual_price
+                    
+                    coins_sold += 1
+                    total_sold_value += sold_value
+                    
+                    print(f"   ✅ Đã bán {actual_quantity:.6f} {coin_info['coin']} @ ¥{actual_price:.2f} = ¥{sold_value:,.2f}")
+                    
+                    # Cập nhật position manager
+                    position_manager.remove_position(symbol, actual_quantity)
+                    
+                except Exception as e:
+                    print(f"   ❌ Lỗi bán {symbol}: {e}")
+            else:
+                print(f"✅ {symbol} không downtrend → GIỮ")
+        
+        # 5.2 Xử lý coin cơ hội mới
+        if best_opportunity:
+            new_coin_symbol = f"{best_opportunity['coin']}/JPY"
+            downtrend_analysis = downtrend_results.get(new_coin_symbol)
+            
+            if downtrend_analysis and downtrend_analysis['detected']:
+                print(f"🔻 Không mua {best_opportunity['coin']} (downtrend)")
+            else:
+                print(f"✅ Mua {best_opportunity['coin']} với 30% vốn")
+                
+                # Lấy số dư hiện tại
+                current_balance = get_account_balance()
+                investment_amount = current_balance * 0.30  # 30% vốn
+                
+                if investment_amount > 0:
+                    try:
+                        # Thực hiện lệnh mua
+                        current_price = get_current_jpy_price(new_coin_symbol)
+                        if current_price:
+                            quantity = investment_amount / current_price
+                            
+                            result = place_buy_order_with_sl_tp(
+                                new_coin_symbol,
+                                quantity,
+                                best_opportunity.get('entry_price', current_price),
+                                best_opportunity.get('stop_loss', current_price * 0.98),
+                                best_opportunity.get('tp_price', current_price * 1.004)
+                            )
+                            
+                            if result['status'] == 'success':
+                                print(f"   ✅ Đã mua ¥{investment_amount:,.0f}")
+                            else:
+                                print(f"   ❌ Lỗi mua: {result.get('error', 'Unknown')}")
+                    except Exception as e:
+                        print(f"   ❌ Lỗi: {e}")
+                else:
+                    print("   ⚠️ Không đủ số dư")
+        
+        # BƯỚC 6: CẬP NHẬT DỮ LIỆU
+        save_active_orders_to_file()
+        
+        try:
+            position_summary = position_manager.get_position_summary()
+        except Exception as e:
+            pass
+        
+        # Tổng kết ngắn gọn
+        print(f"\n✅ Hoàn tất: Bán {coins_sold} coin, ¥{total_sold_value:,.0f}")
+        if best_opportunity:
+            print(f"🎯 Cơ hội: {best_opportunity['coin']}")
+        
+        return {
+            'success': True,
+            'old_orders': len(old_orders),
+            'inventory_coins': len(inventory_coins),
+            'coins_sold': coins_sold,
+            'total_sold_value': total_sold_value,
+            'best_opportunity': best_opportunity,
+            'downtrend_results': downtrend_results,
+            'active_orders': len(ACTIVE_ORDERS)
+        }
+        
+    except Exception as e:
+        print(f"❌ Lỗi: {e}")
+        return {'success': False, 'error': str(e)}
+
 # Hàm in kết quả ra command line - CHỈ KẾT QUẢ CUỐI
 def print_results():
     """Hàm chính phân tích thị trường và thực hiện trading"""
@@ -3597,27 +3870,7 @@ def initialize_order_monitoring():
         print(f"⚠️ Lỗi khởi tạo order monitoring: {e}")
 
 # Hàm xem danh sách lệnh đang theo dõi
-def show_active_orders():
-    """Hiển thị danh sách lệnh đang được theo dõi"""
-    if not ACTIVE_ORDERS:
-        print("  Không có lệnh nào đang được theo dõi")
-        return
-    
-    print(f"\n  DANH SÁCH LỆNH ĐANG THEO DÕI ({len(ACTIVE_ORDERS)} lệnh):")
-    print("=" * 80)
-    
-    for order_id, info in ACTIVE_ORDERS.items():
-        added_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(info['added_time']))
-        last_checked = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(info['last_checked']))
-        
-        print(f"🔹 Order ID: {order_id}")
-        print(f"   Symbol: {info['symbol']}")
-        print(f"   Type: {info['order_type']}")
-        print(f"   Buy Price: ¥{info.get('buy_price', 'N/A')}")
-        print(f"   Added: {added_time}")
-        print(f"   Last Checked: {last_checked}")
-        print(f"   Last Filled: {info.get('last_filled', 0):.6f}")
-        print("   " + "-" * 50)
+
 
 # Hàm xóa lệnh khỏi danh sách theo dõi
 def remove_order_from_monitor(order_id):
@@ -3657,96 +3910,87 @@ initialize_order_monitoring()
 # ======================== MAIN ENTRY POINT ========================
 
 # Hàm tóm tắt tất cả tính năng mới được thêm
-def show_enhanced_features_summary():
-    """Hiển thị tóm tắt về các tính năng được nâng cấp"""
-    print("🚀 ENHANCED TRADING BOT FEATURES")
-    print("=" * 60)
-    print("1. 🔍 COMPREHENSIVE DOWNTREND DETECTION")
-    print("   ✅ Multi-indicator analysis (6 different signals)")
-    print("   ✅ Confidence scoring (0-100%)")
-    print("   ✅ Risk level assessment")
-    print("   ✅ Strength classification (WEAK/MODERATE/STRONG)")
-    print()
-    print("2. 🎯 DYNAMIC ENTRY/TP/SL CALCULATION")
-    print("   ✅ Adaptive entry buffers based on market conditions")
-    print("   ✅ Downtrend-aware take profit targets")
-    print("   ✅ Intelligent stop loss placement")
-    print("   ✅ Risk/reward optimization")
-    print()
-    print("3. ⚖️ ENHANCED RISK MANAGEMENT")
-    print("   ✅ Automatic position rejection in strong downtrends")
-    print("   ✅ Higher confidence requirements during bearish periods")
-    print("   ✅ Dynamic confidence penalties")
-    print("   ✅ Order book strength validation")
-    print()
-    print("4. 📊 INTELLIGENT ORDER BOOK ANALYSIS")
-    print("   ✅ Bid/ask ratio analysis")
-    print("   ✅ Volume wall detection")
-    print("   ✅ Support/resistance integration")
-    print("   ✅ Liquidity-aware position sizing")
-    print()
-    print("5. 🛡️ ADVANCED PROTECTION MECHANISMS")
-    print("   ✅ Multi-layer downtrend validation")
-    print("   ✅ Emergency stop on strong bearish signals")
-    print("   ✅ Conservative profit taking in uncertain markets")
-    print("   ✅ Detailed logging for transparency")
-    print()
-    print("🎯 USAGE COMMANDS:")
-    print("   • show_downtrend_protection_info() - System details")
-    print("   • demo_downtrend_detection() - Test downtrend detection")
-    print("   • show_enhanced_features_summary() - This summary")
-    print("   • Normal trading flow includes all protections automatically")
-    print("=" * 60)
-
 def main():
-    """Main entry point với proper error handling"""
+    """Main entry point với systematic trading mặc định"""
     try:
+        print("🚀 KHỞI ĐỘNG SYSTEMATIC TRADING BOT")
+        print("=" * 60)
         
-        # Validate all required functions exist - simple approach
-        required_functions = ['print_results', 'startup_bot_with_error_handling', 'check_and_process_sell_orders']
-        missing = []
-        
-        # Get current module's globals
-        module_globals = globals()
-        
-        for func_name in required_functions:
-            if func_name not in module_globals:
-                missing.append(func_name)
-            elif not callable(module_globals[func_name]):
-                missing.append(f"{func_name} (not callable)")
-        
-        if missing:
-            print(f"🚨 Lỗi: Thiếu functions: {missing}")
-            print("  Debug info:")
-            # Debug: show what functions are available
-            available_funcs = [name for name, obj in module_globals.items() 
-                             if callable(obj) and not name.startswith('_')]
-            print(f"  Total callable functions: {len(available_funcs)}")
-            for func in required_functions:
-                if func in module_globals:
-                    is_callable = callable(module_globals[func])
-                    print(f"  {'✅' if is_callable else '❌'} {func}: {'Found and callable' if is_callable else 'Found but not callable'}")
-                else:
-                    print(f"  ❌ {func}: Not found in globals")
+        # Validate systematic trading function exists
+        if 'execute_systematic_trading' not in globals():
+            print("🚨 Lỗi: Không tìm thấy function execute_systematic_trading")
             return
         
+        if not callable(globals()['execute_systematic_trading']):
+            print("🚨 Lỗi: execute_systematic_trading không phải là function")
+            return
         
-        # Hiển thị mode hoạt động
-        continuous_mode = TRADING_CONFIG.get('continuous_monitoring', True)
-        if continuous_mode:
-            print(" Mode: CONTINUOUS - Bot sẽ tự động lặp kiểm tra + trading")
+        # Kiểm tra xem có tham số command line không
+        import sys
+        if len(sys.argv) > 1:
+            if sys.argv[1] == "--traditional":
+                # Chạy traditional trading mode (legacy)
+                print("⚠️ CHẠY TRADITIONAL TRADING MODE (LEGACY)")
+                print("💡 Khuyến nghị: Sử dụng systematic trading để có hiệu quả tốt hơn")
+                
+                # Validate traditional functions exist
+                required_functions = ['print_results', 'startup_bot_with_error_handling', 'check_and_process_sell_orders']
+                missing = []
+                
+                module_globals = globals()
+                for func_name in required_functions:
+                    if func_name not in module_globals or not callable(module_globals[func_name]):
+                        missing.append(func_name)
+                
+                if missing:
+                    print(f"🚨 Lỗi: Thiếu traditional functions: {missing}")
+                    print("💡 Sử dụng systematic trading thay thế...")
+                    execute_systematic_trading()
+                    return
+                
+                # Run traditional mode
+                continuous_mode = TRADING_CONFIG.get('continuous_monitoring', True)
+                if continuous_mode:
+                    print("📊 Mode: CONTINUOUS TRADITIONAL")
+                    run_bot_continuously()
+                else:
+                    print("📊 Mode: MANUAL TRADITIONAL")
+                    run_manual_mode()
+                return
+            
+            elif sys.argv[1] == "--help":
+                print("📋 SYSTEMATIC TRADING BOT - USAGE:")
+                print("   python app.py                    → Chạy systematic trading (mặc định)")
+                print("   python app.py --traditional      → Chạy traditional trading (legacy)")
+                print("   python app.py --help             → Hiển thị help này")
+                print("\n🎯 KHUYẾN NGHỊ: Sử dụng systematic trading để có:")
+                print("   ✅ Phân tích đa khung thời gian") 
+                print("   ✅ Quản lý rủi ro thông minh")
+                print("   ✅ Phát hiện downtrend tự động")
+                print("   ✅ Tối ưu entry/exit points")
+                return
+        
+        # MẶC ĐỊNH: Chạy systematic trading
+        result = execute_systematic_trading()
+        
+        if result and result.get('success'):
+            print("✅ THÀNH CÔNG")
         else:
-            print("  Mode: MANUAL - Bot sẽ chạy 1 lần duy nhất")
-        
-        # Run bot
-        run_bot_continuously()
+            print("❌ GẶP LỖI")
+            if result and result.get('error'):
+                print(f"Lỗi: {result['error']}")
         
     except KeyboardInterrupt:
-        print("\n🛑 Dừng bot bằng Ctrl+C")
+        print("\n🛑 Dừng bot")
     except Exception as e:
-        print(f"🚨 Lỗi critical trong main: {e}")
+        print(f"🚨 Lỗi: {e}")
         import traceback
         traceback.print_exc()
+
+# Hàm để chạy systematic trading manual (có thể gọi từ script khác)
+def run_systematic_trading():
+    """Hàm để chạy systematic trading - có thể gọi từ bên ngoài"""
+    return execute_systematic_trading()
 
 # Chạy chương trình
 if __name__ == "__main__":
