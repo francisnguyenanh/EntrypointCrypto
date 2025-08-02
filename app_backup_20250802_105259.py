@@ -1,30 +1,4 @@
 import os
-"""
-EntrypointCrypto - Advanced Crypto Trading Bot
-=============================================
-
-LATEST FIXES (Aug 2, 2025):
-- ✅ Fixed critical unreachable code in execute_systematic_trading()
-- ✅ Improved function validation with centralized validation functions
-- ✅ Standardized error handling patterns across critical functions
-- ✅ Added balance validation utility function to reduce code duplication
-- ✅ Cleaned up code structure and removed dead code
-
-FEATURES:
-- 🎯 Systematic Trading 30m: Multi-timeframe analysis with strict downtrend avoidance
-- ⚡ Scalping Mode 15m: Quick trades allowing weak downtrends with oversold bounce
-- 🔄 2-Level Strategy: Systematic (Level 1) → Scalping (Level 2) fallback
-- 📊 Dynamic TP/SL: RSI-based adjustments for optimal risk/reward
-- 🛡️ Intelligent Risk Management: Position sizing based on confidence levels
-- 📈 Real-time Order Monitoring: Automated tracking and processing
-
-USAGE:
-- python app.py                 → Systematic trading (default)
-- python app.py --scalping      → Scalping mode 15m
-- python app.py --traditional   → Legacy mode
-- python app.py --help          → Show usage info
-"""
-
 import ccxt
 import pandas as pd
 import numpy as np
@@ -4028,19 +4002,18 @@ def execute_scalping_trading():
             print("❌ Bot đã dừng")
             return {'success': False, 'error': 'Bot stopped'}
         
-        # Kiểm tra kết nối API và số dư
-        balance_check = validate_trading_balance(min_balance=1000)
-        
-        if not balance_check['sufficient']:
-            if balance_check['error']:
-                print(f"❌ Lỗi API: {balance_check['error']}")
-                return {'success': False, 'error': f'API error: {balance_check["error"]}'}
-            else:
+        # Kiểm tra kết nối API
+        try:
+            balance = binance.fetch_balance()
+            jpy_balance = balance['JPY']['free'] if 'JPY' in balance else 0
+            print(f"💰 Số dư: ¥{jpy_balance:,.2f}")
+            
+            if jpy_balance < 1000:  # Cần ít nhất 1000 JPY cho scalping
                 print("❌ Số dư không đủ cho scalping (cần ít nhất ¥1,000)")
                 return {'success': False, 'error': 'Insufficient balance'}
-        
-        jpy_balance = balance_check['balance']
-        print(f"💰 Số dư: ¥{jpy_balance:,.2f}")
+        except Exception as e:
+            print(f"❌ Lỗi API: {e}")
+            return {'success': False, 'error': f'API error: {e}'}
         
         # Load active orders từ file
         load_active_orders_from_file()
@@ -4156,15 +4129,14 @@ def execute_systematic_trading():
             print("❌ Bot đã dừng")
             return
         
-        # Kiểm tra kết nối API và số dư
-        balance_check = validate_trading_balance(min_balance=0)  # No minimum for systematic
-        
-        if balance_check['error']:
-            print(f"❌ Lỗi API: {balance_check['error']}")
-            return {'success': False, 'error': f'API error: {balance_check["error"]}'}
-        
-        jpy_balance = balance_check['balance']
-        print(f"💰 Số dư: ¥{jpy_balance:,.2f}")
+        # Kiểm tra kết nối API
+        try:
+            balance = binance.fetch_balance()
+            jpy_balance = balance['JPY']['free'] if 'JPY' in balance else 0
+            print(f"💰 Số dư: ¥{jpy_balance:,.2f}")
+        except Exception as e:
+            print(f"❌ Lỗi API: {e}")
+            return
         
         # Load active orders từ file
         load_active_orders_from_file()
@@ -4471,6 +4443,110 @@ def execute_systematic_trading():
         except Exception as e:
             print(f"❌ Lỗi execute trading: {e}")
             return {'success': False, 'error': str(e)}
+            
+            if downtrend_analysis and downtrend_analysis['detected']:
+                strength = downtrend_analysis['strength']
+                quantity = coin_info['quantity']
+                current_price = coin_info['current_price']
+                
+                # Kiểm tra có thể bán không
+                sell_check = can_sell_coin(symbol, quantity * 0.995, current_price)  # 0.5% buffer
+                
+                if not sell_check['can_sell']:
+                    print(f"⚠️ {symbol} đang downtrend ({strength}) → KHÔNG THỂ BÁN")
+                    print(f"   🔧 Loại lỗi: {sell_check['type']}")
+                    
+                    # Gợi ý giải pháp cụ thể
+                    if sell_check['type'] == 'QUANTITY_TOO_SMALL':
+                        print(f"   💰 Số lượng hiện có: {quantity:.6f}, cần tối thiểu để bán")
+                    continue
+                
+                print(f"🔻 {symbol} đang downtrend ({strength}) → BÁN")
+                
+                try:
+                    # Sử dụng adjusted quantity từ validation
+                    adjusted_quantity = sell_check['adjusted_quantity']
+                    
+                    sell_order = binance.create_market_sell_order(symbol, adjusted_quantity)
+                    
+                    actual_quantity = float(sell_order['filled'])
+                    actual_price = float(sell_order['average']) if sell_order['average'] else current_price
+                    sold_value = actual_quantity * actual_price
+                    
+                    coins_sold += 1
+                    total_sold_value += sold_value
+                    
+                    print(f"   ✅ Đã bán {actual_quantity:.6f} {coin_info['coin']} @ ¥{actual_price:.2f} = ¥{sold_value:,.2f}")
+                    
+                    # Cập nhật position manager
+                    position_manager.remove_position(symbol, actual_quantity)
+                    
+                except Exception as e:
+                    print(f"   ❌ Lỗi bán {symbol}: {e}")
+            else:
+                print(f"✅ {symbol} không downtrend → GIỮ")
+        
+        # 5.2 Xử lý coin cơ hội mới
+        if best_opportunity:
+            new_coin_symbol = f"{best_opportunity['coin']}/JPY"
+            downtrend_analysis = downtrend_results.get(new_coin_symbol)
+            
+            if downtrend_analysis and downtrend_analysis['detected']:
+                print(f"🔻 Không mua {best_opportunity['coin']} (downtrend)")
+            else:
+                print(f"✅ Mua {best_opportunity['coin']} với 30% vốn")
+                
+                # Lấy số dư hiện tại
+                current_balance = get_account_balance()
+                investment_amount = current_balance * 0.30  # 30% vốn
+                
+                if investment_amount > 0:
+                    try:
+                        # Thực hiện lệnh mua
+                        current_price = get_current_jpy_price(new_coin_symbol)
+                        if current_price:
+                            quantity = investment_amount / current_price
+                            
+                            result = place_buy_order_with_sl_tp(
+                                new_coin_symbol,
+                                quantity,
+                                best_opportunity.get('entry_price', current_price),
+                                best_opportunity.get('stop_loss', current_price * 0.98),
+                                best_opportunity.get('tp_price', current_price * 1.004)
+                            )
+                            
+                            if result['status'] == 'success':
+                                print(f"   ✅ Đã mua ¥{investment_amount:,.0f}")
+                            else:
+                                print(f"   ❌ Lỗi mua: {result.get('error', 'Unknown')}")
+                    except Exception as e:
+                        print(f"   ❌ Lỗi: {e}")
+                else:
+                    print("   ⚠️ Không đủ số dư")
+        
+        # BƯỚC 6: CẬP NHẬT DỮ LIỆU
+        save_active_orders_to_file()
+        
+        try:
+            position_summary = position_manager.get_position_summary()
+        except Exception as e:
+            pass
+        
+        # Tổng kết ngắn gọn
+        print(f"\n✅ Hoàn tất: Bán {coins_sold} coin, ¥{total_sold_value:,.0f}")
+        if best_opportunity:
+            print(f"🎯 Cơ hội: {best_opportunity['coin']}")
+        
+        return {
+            'success': True,
+            'old_orders': len(old_orders),
+            'inventory_coins': len(inventory_coins),
+            'coins_sold': coins_sold,
+            'total_sold_value': total_sold_value,
+            'best_opportunity': best_opportunity,
+            'downtrend_results': downtrend_results,
+            'active_orders': len(ACTIVE_ORDERS)
+        }
         
     except Exception as e:
         print(f"❌ Lỗi: {e}")
@@ -4661,67 +4737,19 @@ initialize_order_monitoring()
 # ======================== MAIN ENTRY POINT ========================
 
 # Hàm tóm tắt tất cả tính năng mới được thêm
-def validate_trading_balance(min_balance=1000, currency='JPY'):
-    """
-    Validate that trading balance is sufficient
-    
-    Args:
-        min_balance (float): Minimum required balance
-        currency (str): Currency to check (default: JPY)
-        
-    Returns:
-        dict: {'sufficient': bool, 'balance': float, 'error': str}
-    """
-    try:
-        balance = binance.fetch_balance()
-        current_balance = balance[currency]['free'] if currency in balance else 0
-        
-        return {
-            'sufficient': current_balance >= min_balance,
-            'balance': current_balance,
-            'error': None
-        }
-    except Exception as e:
-        return {
-            'sufficient': False,
-            'balance': 0,
-            'error': str(e)
-        }
-
-def validate_required_functions(required_functions):
-    """
-    Validate that required functions exist and are callable
-    
-    Args:
-        required_functions (list): List of function names to validate
-        
-    Returns:
-        dict: {'valid': bool, 'missing': list}
-    """
-    missing = []
-    module_globals = globals()
-    
-    for func_name in required_functions:
-        if func_name not in module_globals or not callable(module_globals[func_name]):
-            missing.append(func_name)
-    
-    return {
-        'valid': len(missing) == 0,
-        'missing': missing
-    }
-
 def main():
     """Main entry point với systematic trading mặc định và scalping mode"""
     try:
         print("🚀 KHỞI ĐỘNG TRADING BOT")
         print("=" * 60)
         
-        # Validate core functions exist
-        core_functions = ['execute_systematic_trading']
-        validation = validate_required_functions(core_functions)
+        # Validate functions exist
+        if 'execute_systematic_trading' not in globals():
+            print("🚨 Lỗi: Không tìm thấy function execute_systematic_trading")
+            return
         
-        if not validation['valid']:
-            print(f"🚨 Lỗi: Thiếu functions bắt buộc: {validation['missing']}")
+        if not callable(globals()['execute_systematic_trading']):
+            print("🚨 Lỗi: execute_systematic_trading không phải là function")
             return
         
         # Kiểm tra xem có tham số command line không
@@ -4735,9 +4763,8 @@ def main():
                 print("💡 Đặc điểm: Cho phép trade trong weak downtrend")
                 
                 # Validate scalping function exists
-                scalping_validation = validate_required_functions(['execute_scalping_trading'])
-                if not scalping_validation['valid']:
-                    print(f"🚨 Lỗi: Thiếu scalping functions: {scalping_validation['missing']}")
+                if 'execute_scalping_trading' not in globals():
+                    print("🚨 Lỗi: Không tìm thấy function execute_scalping_trading")
                     return
                 
                 result = execute_scalping_trading()
@@ -4763,10 +4790,15 @@ def main():
                 
                 # Validate traditional functions exist
                 required_functions = ['print_results', 'startup_bot_with_error_handling', 'check_and_process_sell_orders']
-                traditional_validation = validate_required_functions(required_functions)
+                missing = []
                 
-                if not traditional_validation['valid']:
-                    print(f"🚨 Lỗi: Thiếu traditional functions: {traditional_validation['missing']}")
+                module_globals = globals()
+                for func_name in required_functions:
+                    if func_name not in module_globals or not callable(module_globals[func_name]):
+                        missing.append(func_name)
+                
+                if missing:
+                    print(f"🚨 Lỗi: Thiếu traditional functions: {missing}")
                     print("💡 Sử dụng systematic trading thay thế...")
                     execute_systematic_trading()
                     return
