@@ -598,14 +598,15 @@ def monitor_active_orders():
             time.sleep(order_monitor_error_sleep)  # Sleep lâu hơn nếu có lỗi
 
 # Hàm thêm lệnh vào danh sách theo dõi
-def add_order_to_monitor(order_id, symbol, order_type, buy_price=None):
-    """Thêm lệnh vào danh sách theo dõi"""
+def add_order_to_monitor(order_id, symbol, order_type, buy_price=None, stop_loss_price=None):
+    """Thêm lệnh vào danh sách theo dõi với thông tin SL"""
     global ORDER_MONITOR_THREAD, MONITOR_RUNNING
     
     ACTIVE_ORDERS[order_id] = {
         'symbol': symbol,
         'order_type': order_type,
         'buy_price': buy_price,
+        'stop_loss_price': stop_loss_price,  # Thêm thông tin giá SL
         'added_time': time.time(),
         'last_checked': time.time(),
         'last_filled': 0
@@ -648,13 +649,135 @@ def load_active_orders_from_file():
     except FileNotFoundError:
         print("📂 Không tìm thấy file backup, bắt đầu với danh sách lệnh trống")
         ACTIVE_ORDERS = {}
-        # Tạo file mới
+
+# Hàm kiểm tra và huỷ lệnh TP khi giá vượt SL (thay thế OCO)
+def check_and_handle_stop_loss_trigger():
+    """
+    Kiểm tra giá hiện tại của các coin có lệnh TP đang chờ
+    Nếu giá hiện tại <= stop_loss_price và lệnh TP chưa khớp => huỷ lệnh TP và tạo lệnh SL market
+    """
+    global ACTIVE_ORDERS
+    
+    if not ACTIVE_ORDERS:
+        return
+    
+    print("🔍 Kiểm tra Stop Loss triggers...")
+    
+    orders_to_cancel = []
+    orders_to_remove = []
+    
+    for order_id, order_info in ACTIVE_ORDERS.items():
+        try:
+            # Chỉ kiểm tra các lệnh TAKE_PROFIT
+            if order_info.get('order_type') != 'TAKE_PROFIT':
+                continue
+            
+            symbol = order_info['symbol']
+            stop_loss_price = order_info.get('stop_loss_price')
+            buy_price = order_info.get('buy_price', 0)
+            
+            # Bỏ qua nếu không có thông tin SL
+            if not stop_loss_price:
+                continue
+            
+            # Lấy giá hiện tại
+            current_price = get_current_jpy_price(symbol)
+            if not current_price:
+                continue
+            
+            print(f"  📊 {symbol}: Current ¥{current_price:.4f} | SL ¥{stop_loss_price:.4f}")
+            
+            # Kiểm tra điều kiện kích hoạt SL
+            if current_price <= stop_loss_price:
+                print(f"🚨 SL TRIGGERED cho {symbol}! Current: ¥{current_price:.4f} <= SL: ¥{stop_loss_price:.4f}")
+                
+                # Kiểm tra trạng thái lệnh TP hiện tại
+                order_status = check_order_status(order_id, symbol)
+                
+                if order_status and order_status['status'] == 'open':
+                    print(f"🔄 Lệnh TP {order_id} vẫn chưa khớp, tiến hành huỷ và tạo SL...")
+                    orders_to_cancel.append((order_id, order_info))
+                else:
+                    print(f"ℹ️ Lệnh TP {order_id} đã khớp hoặc đã huỷ, bỏ qua")
+                    if order_status and order_status['status'] in ['closed', 'canceled', 'expired']:
+                        orders_to_remove.append(order_id)
+        
+        except Exception as e:
+            print(f"⚠️ Lỗi kiểm tra SL cho lệnh {order_id}: {e}")
+            continue
+    
+    # Thực hiện huỷ lệnh TP và tạo lệnh SL
+    for order_id, order_info in orders_to_cancel:
+        try:
+            symbol = order_info['symbol']
+            print(f"🔄 Huỷ lệnh TP {order_id} cho {symbol}...")
+            
+            # Huỷ lệnh TP
+            cancel_result = binance.cancel_order(order_id, symbol)
+            print(f"✅ Đã huỷ lệnh TP {order_id}")
+            
+            # Kiểm tra số dư coin còn lại
+            coin_name = symbol.split('/')[0]  # VD: ADA từ ADA/JPY
+            balance = binance.fetch_balance()
+            available_coin = balance.get(coin_name, {}).get('free', 0)
+            
+            if available_coin > 0:
+                print(f"💰 Số dư {coin_name} khả dụng: {available_coin:.6f}")
+                
+                # Tạo lệnh SL Market để bán ngay lập tức
+                print(f"🚨 Tạo lệnh SL Market để bán {available_coin:.6f} {coin_name}")
+                sl_order = binance.create_market_sell_order(symbol, available_coin)
+                
+                print(f"✅ SL EXECUTED: Đã bán {available_coin:.6f} {coin_name} tại giá thị trường")
+                
+                # Gửi thông báo SL
+                try:
+                    from account_info import send_sell_success_notification
+                    
+                    sl_price = sl_order.get('average') or current_price
+                    profit_loss = sl_price - order_info.get('buy_price', 0)
+                    profit_percent = (profit_loss / order_info.get('buy_price', 1)) * 100 if order_info.get('buy_price', 0) > 0 else 0
+                    
+                    sell_success_data = {
+                        'symbol': symbol,
+                        'order_type': 'STOP_LOSS_EXECUTED',
+                        'filled_price': sl_price,
+                        'buy_price': order_info.get('buy_price', 0),
+                        'quantity': available_coin,
+                        'profit_loss': profit_loss,
+                        'profit_percent': profit_percent,
+                        'order_id': sl_order['id'],
+                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'note': f'Auto SL executed at ¥{current_price:.4f} (trigger: ¥{order_info.get("stop_loss_price", 0):.4f})'
+                    }
+                    
+                    send_sell_success_notification(sell_success_data)
+                except Exception:
+                    pass  # Silent notification
+            else:
+                print(f"⚠️ Không có {coin_name} nào để bán")
+            
+            # Đánh dấu để xóa khỏi danh sách theo dõi
+            orders_to_remove.append(order_id)
+            
+        except Exception as e:
+            print(f"❌ Lỗi xử lý SL cho lệnh {order_id}: {e}")
+    
+    # Xóa các lệnh đã xử lý
+    for order_id in orders_to_remove:
+        if order_id in ACTIVE_ORDERS:
+            del ACTIVE_ORDERS[order_id]
+            print(f"🗑️ Đã xóa lệnh {order_id} khỏi danh sách theo dõi")
+    
+    # Lưu lại danh sách đã cập nhật
+    if orders_to_remove:
         save_active_orders_to_file()
-    except Exception as e:
-        print(f"⚠️ Lỗi đọc active orders: {e}")
-        ACTIVE_ORDERS = {}
-        # Tạo file mới
-        save_active_orders_to_file()
+        print(f"📁 Đã cập nhật danh sách theo dõi ({len(ACTIVE_ORDERS)} lệnh còn lại)")
+
+    if orders_to_cancel:
+        print(f"✅ Đã xử lý {len(orders_to_cancel)} lệnh SL trigger")
+    else:
+        print("✅ Không có lệnh nào cần kích hoạt SL")
 
 # Hàm dừng monitor
 def stop_order_monitor():
@@ -1054,8 +1177,8 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                 )
                 orders_placed.append(oco_order)
                 oco_success = True
-                # Thêm OCO order vào danh sách theo dõi
-                add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
+                # Thêm OCO order vào danh sách theo dõi với thông tin SL
+                add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price, stop_loss)
             except Exception as oco_error:
                 print(f"❌ OCO FAILED: {oco_error}")
                 # Nếu là lỗi từ ccxt, in thêm mã code lỗi nếu có
@@ -1098,7 +1221,8 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                     )
                     orders_placed.append(tp_order)
                     print(f"✅ TP: ¥{tp_price:.4f} (Quantity: {total_reserve:.6f})")
-                    add_order_to_monitor(tp_order['id'], trading_symbol, "TAKE_PROFIT", actual_price)
+                    print(f"🛡️ SL được theo dõi tự động: ¥{stop_loss:.4f}")
+                    add_order_to_monitor(tp_order['id'], trading_symbol, "TAKE_PROFIT", actual_price, stop_loss)
                     
                     # Thông báo về SL thủ công với thông tin chi tiết
                     profit_pct = ((tp_price / actual_price - 1) * 100)
@@ -3112,6 +3236,10 @@ def check_and_process_sell_orders():
         print("  Không có lệnh nào đang theo dõi")
         return
     
+    # BƯỚC MỚI: Kiểm tra SL trigger trước khi kiểm tra status lệnh
+    print("🔍 Kiểm tra SL triggers trước...")
+    check_and_handle_stop_loss_trigger()
+    
     print(f"🔍 Đang kiểm tra {len(ACTIVE_ORDERS)} lệnh...")
     
     orders_to_remove = []
@@ -4056,8 +4184,8 @@ def execute_scalping_trading():
         # Load active orders từ file
         load_active_orders_from_file()
         
-        # BƯỚC 2: KIỂM TRA VÀ XỬ LÝ LỆNH CŨ
-        print("🔍 Bước 1: Kiểm tra lệnh cũ...")
+        # BƯỚC 2: KIỂM TRA VÀ XỬ LÝ LỆNH CŨ + SL TRIGGERS
+        print("🔍 Bước 1: Kiểm tra lệnh cũ và SL triggers...")
         check_and_process_sell_orders()
         
         # BƯỚC 3: XỬ LÝ TỒN KHO (nếu có)
@@ -4180,8 +4308,11 @@ def execute_systematic_trading():
         # Load active orders từ file
         load_active_orders_from_file()
         
-        # BƯỚC 2: KIỂM TRA LỆNH CŨ VÀ TỒN KHO
-        print("📦 Kiểm tra tồn kho")
+        # BƯỚC 2: KIỂM TRA LỆNH CŨ VÀ TỒN KHO + SL TRIGGERS
+        print("📦 Kiểm tra tồn kho và SL triggers")
+        
+        # Kiểm tra SL triggers trước khi phân tích tồn kho
+        check_and_handle_stop_loss_trigger()
         
         # 2.1 Kiểm tra lệnh cũ - PHƯƠNG PHÁP TỐI ƯU
         old_orders = []
@@ -4840,11 +4971,13 @@ def main():
                 print("   ✅ TP/SL nhỏ, exit nhanh (15-60 phút)")
                 print("   ✅ Tìm cơ hội oversold bounce")
                 print("   ✅ Risk/Reward tối ưu cho scalping")
+                print("   🆕 Auto Stop Loss trigger (thay thế OCO)")
                 print("\n🎯 SYSTEMATIC TRADING 30M:")
                 print("   ✅ Phân tích đa khung thời gian") 
                 print("   ✅ Quản lý rủi ro thông minh")
                 print("   ✅ Phát hiện downtrend tự động")
                 print("   ✅ Tối ưu entry/exit points")
+                print("   🆕 Auto Stop Loss trigger (thay thế OCO)")
                 return
         
         # MẶC ĐỊNH: Chạy systematic trading 30m
