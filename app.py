@@ -1016,55 +1016,78 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
             print(f"⚠️ Không thể kiểm tra số dư: {balance_error}")
             available_coin = actual_quantity * 0.95  # Fallback: giữ 5% buffer
         
-        # Thử đặt OCO order trước (ưu tiên cao vì giải quyết vấn đề insufficient balance)
-        print("🔄 Đang thử OCO order (One-Cancels-Other)...")
-        
+        # Kiểm tra cặp coin có hỗ trợ OCO không trước khi thử đặt OCO order
+        oco_supported = True
         try:
-            # Sử dụng 95% coin cho OCO
-            oco_quantity = available_coin * 0.95
-            
-            oco_order = binance.create_order(
-                symbol=trading_symbol,
-                type='OCO',
-                side='sell',
-                amount=oco_quantity,
-                price=tp_price,  # Take profit price
-                params={
-                    'stopPrice': stop_loss,  # Stop loss trigger price
-                    'stopLimitPrice': stop_loss * (1 - TRADING_CONFIG.get('stop_loss_buffer', 0.001)),
-                    'stopLimitTimeInForce': 'GTC'
-                }
-            )
-            orders_placed.append(oco_order)
-            oco_success = True
-            print(f"✅ OCO SUCCESS: SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f} (Quantity: {oco_quantity:.6f})")
-            print("💡 OCO đảm bảo chỉ 1 trong 2 lệnh sẽ execute, tránh insufficient balance")
-            
-            # Thêm OCO order vào danh sách theo dõi
-            add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
-            
-        except Exception as oco_error:
-            print(f"❌ OCO FAILED: {oco_error}")
-            print("⚠️ Chuyển sang phương án dự phòng: ưu tiên đặt Take Profit")
+            exchange_info = binance.fetch_exchange_info()
+            # Binance API dùng symbol không có dấu gạch chéo, ví dụ ADAJPY
+            symbol_no_slash = trading_symbol.replace('/', '')
+            symbol_info = next((s for s in exchange_info['symbols'] if s['symbol'] == symbol_no_slash), None)
+            if symbol_info:
+                permissions = symbol_info.get('permissions', [])
+                print(f"Permissions for {trading_symbol}: {permissions}")
+                if 'OCO' not in permissions:
+                    print(f"❌ {trading_symbol} does not support OCO orders via API")
+                    oco_supported = False
+            else:
+                print(f"❌ Could not find {trading_symbol} in exchange info")
+                oco_supported = False
+        except Exception as e:
+            print(f"⚠️ Error checking exchange info: {e}")
+            oco_supported = False
+
+        if oco_supported:
+            print("🔄 Đang thử OCO order (One-Cancels-Other)...")
+            try:
+                oco_quantity = available_coin
+                oco_order = binance.create_order(
+                    symbol=trading_symbol,
+                    type='OCO',
+                    side='sell',
+                    amount=oco_quantity,
+                    price=tp_price,  # Take profit price
+                    params={
+                        'stopPrice': stop_loss,  # Stop loss trigger price
+                        'stopLimitPrice': stop_loss * (1 - TRADING_CONFIG.get('stop_loss_buffer', 0.001)),
+                        'stopLimitTimeInForce': 'GTC'
+                    }
+                )
+                orders_placed.append(oco_order)
+                oco_success = True
+                print(f"✅ OCO SUCCESS: SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f} (Quantity: {oco_quantity:.6f})")
+                print("💡 OCO đảm bảo chỉ 1 trong 2 lệnh sẽ execute, tránh insufficient balance")
+                # Thêm OCO order vào danh sách theo dõi
+                add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
+            except Exception as oco_error:
+                print(f"❌ OCO FAILED: {oco_error}")
+                # Nếu là lỗi từ ccxt, in thêm mã code lỗi nếu có
+                if hasattr(oco_error, 'args') and oco_error.args:
+                    error_msg = str(oco_error.args[0])
+                    print(f"🔍 Binance error message: {error_msg}")
+                    # Nếu trả về dict có 'code' hoặc 'msg', in ra
+                    if isinstance(oco_error.args[0], dict):
+                        err_dict = oco_error.args[0]
+                        if 'code' in err_dict:
+                            print(f"🔢 Binance error code: {err_dict['code']}")
+                        if 'msg' in err_dict:
+                            print(f"💬 Binance error msg: {err_dict['msg']}")
+                print("⚠️ Chuyển sang phương án dự phòng: ưu tiên đặt Take Profit")
+                oco_success = False
+        else:
+            print(f"⚠️ {trading_symbol} không hỗ trợ OCO hoặc không thể kiểm tra, chuyển sang phương án dự phòng: ưu tiên đặt Take Profit")
             oco_success = False
-        
+
         # Nếu OCO thất bại, đặt lệnh riêng lẻ (ưu tiên TP)
         if not oco_success:
             # CHIẾN LƯỢC MỚI: Ưu tiên TAKE PROFIT để lấy lời, SL quản lý thủ công
-            # → Tích cực hơn: đảm bảo lấy lời khi có cơ hội
-            total_reserve = available_coin * 0.95  # 95% để tránh lỗi
-            
-            print(f"💰 Chiến lược PROFIT-FIRST: ưu tiên đặt Take Profit")
-            print(f"📊 Coin khả dụng: {available_coin:.6f}")
-            print(f"🎯 Take Profit đảm bảo lấy lời 95% coin, SL quản lý thủ công")
+            # Bán 100% coin khả dụng
+            total_reserve = available_coin  # 100% để tối ưu hóa lợi nhuận
             
             # Kiểm tra minimum notional cho TP
             min_notional = 5.0
             tp_notional = total_reserve * tp_price
             
             if tp_notional < min_notional:
-                print(f"❌ TP notional quá thấp ({tp_notional:.2f} < {min_notional})")
-                print("⚠️ Không đặt được lệnh bán - quản lý hoàn toàn thủ công")
                 total_reserve = 0
             
             # 1. Ưu tiên đặt Take Profit để đảm bảo lấy lời
@@ -1083,23 +1106,13 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                     # Thông báo về SL thủ công với thông tin chi tiết
                     profit_pct = ((tp_price / actual_price - 1) * 100)
                     risk_pct = ((actual_price - stop_loss) / actual_price * 100)
-                    print(f"🛡️ SL Target: ¥{stop_loss:.4f} (-{risk_pct:.2f}%)")
-                    print(f"📊 TP Target: +{profit_pct:.2f}% | Risk: -{risk_pct:.2f}% | R/R: {profit_pct/risk_pct:.2f}")
-                    print(f"💡 Monitor giá và bán thủ công khi giá xuống dưới SL")
-                    print(f"📱 Theo dõi: {trading_symbol} price < ¥{stop_loss:.4f} → Market sell {total_reserve:.6f}")
-                    
                 except Exception as tp_error:
                     print(f"❌ Lỗi đặt TP: {tp_error}")
                     print(f"  🔍 Chi tiết: Symbol={trading_symbol}, Quantity={total_reserve:.6f}, Price=¥{tp_price:.2f}")
-            
-            # 2. SL không được đặt tự động để tránh insufficient balance
-            print(f"⚠️ Stop Loss không được đặt tự động")
-            print(f"📝 Lý do: Binance không cho phép 2 lệnh bán cùng số lượng coin")
-            print(f"🛡️ Giải pháp: Monitor giá thủ công, bán market khi giá xuống ¥{stop_loss:.2f}")
+        
         
         # Kiểm tra số dư sau khi đặt lệnh
         final_balance = get_account_balance()
-        print(f"💰 Số dư sau: ¥{final_balance:,.2f}")
         
         # Thông báo kết quả
         total_orders = len(orders_placed)
