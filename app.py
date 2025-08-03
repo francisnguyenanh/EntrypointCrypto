@@ -1054,8 +1054,6 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                 )
                 orders_placed.append(oco_order)
                 oco_success = True
-                print(f"✅ OCO SUCCESS: SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f} (Quantity: {oco_quantity:.6f})")
-                print("💡 OCO đảm bảo chỉ 1 trong 2 lệnh sẽ execute, tránh insufficient balance")
                 # Thêm OCO order vào danh sách theo dõi
                 add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
             except Exception as oco_error:
@@ -1074,7 +1072,6 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                 print("⚠️ Chuyển sang phương án dự phòng: ưu tiên đặt Take Profit")
                 oco_success = False
         else:
-            print(f"⚠️ {trading_symbol} không hỗ trợ OCO hoặc không thể kiểm tra, chuyển sang phương án dự phòng: ưu tiên đặt Take Profit")
             oco_success = False
 
         # Nếu OCO thất bại, đặt lệnh riêng lẻ (ưu tiên TP)
@@ -1108,7 +1105,6 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                     risk_pct = ((actual_price - stop_loss) / actual_price * 100)
                 except Exception as tp_error:
                     print(f"❌ Lỗi đặt TP: {tp_error}")
-                    print(f"  🔍 Chi tiết: Symbol={trading_symbol}, Quantity={total_reserve:.6f}, Price=¥{tp_price:.2f}")
         
         
         # Kiểm tra số dư sau khi đặt lệnh
