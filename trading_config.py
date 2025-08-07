@@ -90,7 +90,7 @@ TRADING_CONFIG = {
     'emergency_stop': False,  # Emergency stop trading
     
     # JPY specific settings
-    'base_currency': 'JPY',  # Sử dụng JPY làm base currency
+    'base_currency': 'ETH',  # Sử dụng JPY làm base currency
     'jpy_to_usd_rate': 150,  # Tỷ giá JPY/USD để tham khảo (1 USD = 150 JPY)
 }
 

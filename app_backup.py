@@ -282,27 +282,28 @@ def evaluate_coin_priority(coin_data):
         print(f"⚠️ Lỗi đánh giá coin {coin_data.get('coin', 'Unknown')}: {e}")
         return 0
 
-# Hàm chuyển đổi giá từ JPY sang USDT
-def convert_jpy_to_usdt(jpy_price):
-    """Chuyển đổi giá từ JPY sang USDT"""
+# Hàm chuyển đổi giá từ base_currency sang USDT
+def convert_base_currency_to_usdt(base_currency_price):
+    """Chuyển đổi giá từ base_currency sang USDT"""
     try:
         if trading_config.PRICE_CONVERSION['use_live_rate']:
             # Lấy tỷ giá thời gian thực từ Binance
-            ticker = binance.fetch_ticker('USDT/JPY')
-            usd_jpy_rate = 1 / ticker['last']  # JPY to USD
+            base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+            ticker = binance.fetch_ticker(f'USDT/{base_currency}')
+            usd_base_currency_rate = 1 / ticker['last']  # base_currency to USD
         else:
-            usd_jpy_rate = trading_config.PRICE_CONVERSION['default_jpy_to_usd']
+            usd_base_currency_rate = trading_config.PRICE_CONVERSION['default_base_currency_to_usd']
         
-        usdt_price = jpy_price * usd_jpy_rate
+        usdt_price = base_currency_price * usd_base_currency_rate
         return usdt_price
     except Exception as e:
-        print(f"⚠️ Lỗi chuyển đổi JPY->USDT: {e}")
+        print(f"⚠️ Lỗi chuyển đổi base_currency->USDT: {e}")
         # Fallback to default rate
-        return jpy_price * trading_config.PRICE_CONVERSION['default_jpy_to_usd']
+        return base_currency_price * trading_config.PRICE_CONVERSION['default_base_currency_to_usd']
 
-# Hàm lấy giá hiện tại của cặp JPY
-def get_current_jpy_price(symbol):
-    """Lấy giá hiện tại của cặp JPY"""
+# Hàm lấy giá hiện tại của cặp base_currency
+def get_current_base_currency_price(symbol):
+    """Lấy giá hiện tại của cặp base_currency"""
     try:
         ticker = binance.fetch_ticker(symbol)
         return ticker['last']
@@ -364,7 +365,8 @@ def trigger_new_trading_cycle():
         
         # Kiểm tra số dư hiện tại sau xử lý tồn kho
         current_balance = get_account_balance()
-        print(f"💰 Số dư hiện tại: ¥{current_balance:,.2f}")
+        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+        print(f"💰 Số dư hiện tại: {base_currency} {current_balance:,.2f}")
         
         # Chỉ cần có số dư là có thể trading
         if current_balance > 0:
@@ -408,14 +410,15 @@ def update_position_on_sell(symbol, quantity_sold, sell_price):
             pnl = (sell_price - avg_price) * quantity_sold
             pnl_percent = (sell_price - avg_price) / avg_price * 100
             
-            print(f"📊 Bán {symbol}: {quantity_sold:.6f} @ ¥{sell_price:.4f}")
-            print(f"   💰 Giá TB: ¥{avg_price:.4f} | P&L: ¥{pnl:+.2f} ({pnl_percent:+.2f}%)")
+            base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+            print(f"📊 Bán {symbol}: {quantity_sold:.6f} @ {base_currency} {sell_price:.4f}")
+            print(f"   💰 Giá TB: {base_currency} {avg_price:.4f} | P&L: {base_currency} {pnl:+.2f} ({pnl_percent:+.2f}%)")
             
             # Cập nhật position
             remaining_position = position_manager.remove_position(symbol, quantity_sold)
             
             return {
-                'pnl_jpy': pnl,
+                'pnl_base_currency': pnl,
                 'pnl_percent': pnl_percent,
                 'avg_entry': avg_price,
                 'remaining_position': remaining_position
@@ -443,11 +446,12 @@ def show_positions_summary():
                 symbol = pos['symbol']
                 sl_tp_info = position_manager.calculate_sl_tp_prices(symbol)
                 if sl_tp_info:
+                    base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
                     print(f"   🎯 {coin}:")
                     print(f"      📦 Quantity: {pos['total_quantity']:.6f}")
-                    print(f"      💰 Giá TB: ¥{pos['average_price']:.4f}")
-                    print(f"      🛡️ SL: ¥{sl_tp_info['stop_loss']:.4f}")
-                    print(f"      🎯 TP: ¥{sl_tp_info['tp_price']:.4f}")
+                    print(f"      💰 Giá TB: {base_currency} {pos['average_price']:.4f}")
+                    print(f"      🛡️ SL: {base_currency} {sl_tp_info['stop_loss']:.4f}")
+                    print(f"      🎯 TP: {base_currency} {sl_tp_info['tp_price']:.4f}")
         
     except Exception as e:
         print(f"❌ Lỗi hiển thị positions: {e}")
@@ -534,13 +538,15 @@ def monitor_active_orders():
                             profit = (sell_price - buy_price) * current_status['filled']
                             profit_percent = ((sell_price - buy_price) / buy_price) * 100
                             
-                            filled_info['profit_loss'] = f"¥{profit:,.2f}"
+                            base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+                            filled_info['profit_loss'] = f"{base_currency} {profit:,.2f}"
                             filled_info['profit_percentage'] = f"{profit_percent:+.2f}%"
                         
                         # Đánh dấu để xóa khỏi danh sách theo dõi
                         orders_to_remove.append(order_id)
                         
-                        print(f"✅ Lệnh {order_id} đã khớp: {current_status['symbol']} - {current_status['filled']:.6f} @ ¥{current_status['average']:.4f}")
+                        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+                        print(f"✅ Lệnh {order_id} đã khớp: {current_status['symbol']} - {current_status['filled']:.6f} @ {base_currency} {current_status['average']:.4f}")
                     
                     elif current_status['status'] in ['canceled', 'expired', 'rejected']:
                         # Lệnh đã bị hủy/từ chối
@@ -572,14 +578,15 @@ def monitor_active_orders():
             time.sleep(order_monitor_error_sleep)  # Sleep lâu hơn nếu có lỗi
 
 # Hàm thêm lệnh vào danh sách theo dõi
-def add_order_to_monitor(order_id, symbol, order_type, buy_price=None):
-    """Thêm lệnh vào danh sách theo dõi"""
+def add_order_to_monitor(order_id, symbol, order_type, buy_price=None, stop_loss_price=None):
+    """Thêm lệnh vào danh sách theo dõi với thông tin SL"""
     global ORDER_MONITOR_THREAD, MONITOR_RUNNING
     
     ACTIVE_ORDERS[order_id] = {
         'symbol': symbol,
         'order_type': order_type,
         'buy_price': buy_price,
+        'stop_loss_price': stop_loss_price,  # Thêm thông tin giá SL
         'added_time': time.time(),
         'last_checked': time.time(),
         'last_filled': 0
@@ -622,13 +629,135 @@ def load_active_orders_from_file():
     except FileNotFoundError:
         print("📂 Không tìm thấy file backup, bắt đầu với danh sách lệnh trống")
         ACTIVE_ORDERS = {}
-        # Tạo file mới
+
+# Hàm kiểm tra và huỷ lệnh TP khi giá vượt SL (thay thế OCO)
+def check_and_handle_stop_loss_trigger():
+    """
+    Kiểm tra giá hiện tại của các coin có lệnh TP đang chờ
+    Nếu giá hiện tại <= stop_loss_price và lệnh TP chưa khớp => huỷ lệnh TP và tạo lệnh SL market
+    """
+    global ACTIVE_ORDERS
+    
+    if not ACTIVE_ORDERS:
+        return
+    
+    print("🔍 Kiểm tra Stop Loss triggers...")
+    
+    orders_to_cancel = []
+    orders_to_remove = []
+    
+    for order_id, order_info in ACTIVE_ORDERS.items():
+        try:
+            # Chỉ kiểm tra các lệnh TAKE_PROFIT
+            if order_info.get('order_type') != 'TAKE_PROFIT':
+                continue
+            
+            symbol = order_info['symbol']
+            stop_loss_price = order_info.get('stop_loss_price')
+            buy_price = order_info.get('buy_price', 0)
+            
+            # Bỏ qua nếu không có thông tin SL
+            if not stop_loss_price:
+                continue
+            
+            # Lấy giá hiện tại
+            current_price = get_current_base_currency_price(symbol)
+            if not current_price:
+                continue
+            
+            print(f"  📊 {symbol}: Current ¥{current_price:.4f} | SL ¥{stop_loss_price:.4f}")
+            
+            # Kiểm tra điều kiện kích hoạt SL
+            if current_price <= stop_loss_price:
+                print(f"🚨 SL TRIGGERED cho {symbol}! Current: ¥{current_price:.4f} <= SL: ¥{stop_loss_price:.4f}")
+                
+                # Kiểm tra trạng thái lệnh TP hiện tại
+                order_status = check_order_status(order_id, symbol)
+                
+                if order_status and order_status['status'] == 'open':
+                    print(f"🔄 Lệnh TP {order_id} vẫn chưa khớp, tiến hành huỷ và tạo SL...")
+                    orders_to_cancel.append((order_id, order_info))
+                else:
+                    print(f"ℹ️ Lệnh TP {order_id} đã khớp hoặc đã huỷ, bỏ qua")
+                    if order_status and order_status['status'] in ['closed', 'canceled', 'expired']:
+                        orders_to_remove.append(order_id)
+        
+        except Exception as e:
+            print(f"⚠️ Lỗi kiểm tra SL cho lệnh {order_id}: {e}")
+            continue
+    
+    # Thực hiện huỷ lệnh TP và tạo lệnh SL
+    for order_id, order_info in orders_to_cancel:
+        try:
+            symbol = order_info['symbol']
+            print(f"🔄 Huỷ lệnh TP {order_id} cho {symbol}...")
+            
+            # Huỷ lệnh TP
+            cancel_result = binance.cancel_order(order_id, symbol)
+            print(f"✅ Đã huỷ lệnh TP {order_id}")
+            
+            # Kiểm tra số dư coin còn lại
+            coin_name = symbol.split('/')[0]  # VD: ADA từ ADA/base_currency
+            balance = binance.fetch_balance()
+            available_coin = balance.get(coin_name, {}).get('free', 0)
+            
+            if available_coin > 0:
+                print(f"💰 Số dư {coin_name} khả dụng: {available_coin:.6f}")
+                
+                # Tạo lệnh SL Market để bán ngay lập tức
+                print(f"🚨 Tạo lệnh SL Market để bán {available_coin:.6f} {coin_name}")
+                sl_order = binance.create_market_sell_order(symbol, available_coin)
+                
+                print(f"✅ SL EXECUTED: Đã bán {available_coin:.6f} {coin_name} tại giá thị trường")
+                
+                # Gửi thông báo SL
+                try:
+                    from account_info import send_sell_success_notification
+                    
+                    sl_price = sl_order.get('average') or current_price
+                    profit_loss = sl_price - order_info.get('buy_price', 0)
+                    profit_percent = (profit_loss / order_info.get('buy_price', 1)) * 100 if order_info.get('buy_price', 0) > 0 else 0
+                    
+                    sell_success_data = {
+                        'symbol': symbol,
+                        'order_type': 'STOP_LOSS_EXECUTED',
+                        'filled_price': sl_price,
+                        'buy_price': order_info.get('buy_price', 0),
+                        'quantity': available_coin,
+                        'profit_loss': profit_loss,
+                        'profit_percent': profit_percent,
+                        'order_id': sl_order['id'],
+                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'note': f'Auto SL executed at ¥{current_price:.4f} (trigger: ¥{order_info.get("stop_loss_price", 0):.4f})'
+                    }
+                    
+                    send_sell_success_notification(sell_success_data)
+                except Exception:
+                    pass  # Silent notification
+            else:
+                print(f"⚠️ Không có {coin_name} nào để bán")
+            
+            # Đánh dấu để xóa khỏi danh sách theo dõi
+            orders_to_remove.append(order_id)
+            
+        except Exception as e:
+            print(f"❌ Lỗi xử lý SL cho lệnh {order_id}: {e}")
+    
+    # Xóa các lệnh đã xử lý
+    for order_id in orders_to_remove:
+        if order_id in ACTIVE_ORDERS:
+            del ACTIVE_ORDERS[order_id]
+            print(f"🗑️ Đã xóa lệnh {order_id} khỏi danh sách theo dõi")
+    
+    # Lưu lại danh sách đã cập nhật
+    if orders_to_remove:
         save_active_orders_to_file()
-    except Exception as e:
-        print(f"⚠️ Lỗi đọc active orders: {e}")
-        ACTIVE_ORDERS = {}
-        # Tạo file mới
-        save_active_orders_to_file()
+        print(f"📁 Đã cập nhật danh sách theo dõi ({len(ACTIVE_ORDERS)} lệnh còn lại)")
+
+    if orders_to_cancel:
+        print(f"✅ Đã xử lý {len(orders_to_cancel)} lệnh SL trigger")
+    else:
+        print("✅ Không có lệnh nào cần kích hoạt SL")
 
 # Hàm dừng monitor
 def stop_order_monitor():
@@ -671,27 +800,28 @@ def validate_balance_for_order(symbol, quantity, price):
 
 # Hàm lấy số dư tài khoản
 def get_account_balance():
-    """Lấy số dư tài khoản JPY"""
+    """Lấy số dư tài khoản base_currency"""
     try:
         balance = binance.fetch_balance()
-        jpy_balance = balance['JPY']['free'] if 'JPY' in balance else 0
-        return jpy_balance
+        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+        base_currency_balance = balance[base_currency]['free'] if base_currency in balance else 0
+        return base_currency_balance
     except Exception as e:
         print(f"Lỗi khi lấy số dư: {e}")
         return 0
 
 # Hàm tính toán kích thước order
-def calculate_order_size(jpy_balance, num_recommendations, coin_price):
-    """All-in toàn bộ số dư JPY cho mỗi lệnh."""
-    if jpy_balance <= 0:
-        print(f"⚠️ Số dư JPY không đủ để đặt lệnh. Hiện có ¥{jpy_balance:,.2f}")
+def calculate_order_size(base_currency_balance, num_recommendations, coin_price):
+    """All-in toàn bộ số dư base_currency cho mỗi lệnh."""
+    if base_currency_balance <= 0:
+        print(f"⚠️ Số dư base_currency không đủ để đặt lệnh. Hiện có ¥{base_currency_balance:,.2f}")
         return 0
     
     # Chia đều số dư cho số recommendations hoặc all-in nếu chỉ có 1
     if num_recommendations <= 1:
-        quantity = jpy_balance / coin_price
+        quantity = base_currency_balance / coin_price
     else:
-        balance_per_coin = jpy_balance / num_recommendations
+        balance_per_coin = base_currency_balance / num_recommendations
         quantity = balance_per_coin / coin_price
     
     return quantity
@@ -852,12 +982,12 @@ def check_market_impact(symbol, quantity, order_book_analysis=None, side='buy'):
 def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_price):
     """Đặt lệnh mua với stop loss và take profit tự động - chỉ 1 TP"""
     try:
-        # Trade trực tiếp JPY - đơn giản
-        trading_symbol = symbol  # Sử dụng trực tiếp JPY pair
-        current_price = get_current_jpy_price(symbol)
+        # Trade trực tiếp base_currency - đơn giản
+        trading_symbol = symbol  # Sử dụng trực tiếp base_currency pair
+        current_price = get_current_base_currency_price(symbol)
         
         if not current_price:
-            return {'status': 'failed', 'error': 'Cannot get current JPY price'}
+            return {'status': 'failed', 'error': 'Cannot get current base_currency price'}
         
         # Kiểm tra thanh khoản và điều chỉnh số lượng
         order_book = get_order_book(symbol, limit=20)
@@ -899,8 +1029,12 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
             else:
                 return {'status': 'failed', 'error': 'balance_check_error'}
         
-        print(f"💰 Số dư: ¥{balance_check['current_balance']:,.2f}")
-        print(f"🎯 Đặt lệnh {trading_symbol}: Entry ¥{entry_price:.2f} | SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f}")
+        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+        print(f"💰 Số dư: {balance_check['current_balance']:,.2f} {base_currency}")
+        print(f"🎯 Đặt lệnh {trading_symbol}:")
+        print(f"   📊 Entry: {entry_price:.4f} | SL: {stop_loss:.4f} | TP: {tp_price:.4f} {base_currency}")
+        print(f"   📈 Target profit: {((tp_price / entry_price - 1) * 100):.2f}%")
+        print(f"   🛡️ Risk: {((entry_price - stop_loss) / entry_price * 100):.2f}%")
         
         # 1. Đặt lệnh mua market
         try:
@@ -910,9 +1044,9 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
             actual_price = float(buy_order['average']) if buy_order['average'] else current_price
             actual_quantity = float(buy_order['filled'])
             
-            print(f"✅ MUA THÀNH CÔNG: {actual_quantity:.6f} @ ¥{actual_price:.2f}")
+            print(f"✅ MUA THÀNH CÔNG: {actual_quantity:.6f} @ {actual_price:.2f} {base_currency}")
             
-            # Lưu thông tin mua vào position manager
+            # Lưu thông tin mua vào position manager (KHÔNG OVERRIDE TP/SL)
             position_info = position_manager.add_buy_order(
                 trading_symbol, 
                 actual_quantity, 
@@ -920,16 +1054,11 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                 buy_order['id']
             )
             
-            # Tính lại SL/TP dựa trên giá trung bình từ position manager
-            if position_info:
-                avg_based_prices = position_manager.calculate_sl_tp_prices(trading_symbol)
-                if avg_based_prices:
-                    # Sử dụng giá SL/TP từ position manager (dựa trên giá trung bình)
-                    stop_loss = avg_based_prices['stop_loss']
-                    tp_price = avg_based_prices['tp1_price']  # Chỉ dùng TP1 làm TP duy nhất
-                    
-                    print(f"📊 SL/TP dựa trên giá TB ¥{avg_based_prices['average_entry']:.4f}:")
-                    print(f"   🛡️ SL: ¥{stop_loss:.4f} | 🎯 TP: ¥{tp_price:.4f}")
+            # GIỮ NGUYÊN TP/SL ĐÃ TÍNH TỪ STRATEGY ANALYSIS
+            # Không override bằng position manager để tránh TP quá cao
+            print(f"📊 Sử dụng TP/SL từ strategy analysis:")
+            print(f"   🎯 Entry: {actual_price:.4f} | 🛡️ SL: {stop_loss:.4f} | 📈 TP: {tp_price:.4f} {base_currency}")
+            print(f"� Strategy TP: {((tp_price / actual_price - 1) * 100):.2f}% (tối ưu cho market conditions)")
             
         except Exception as buy_error:
             error_str = str(buy_error).lower()
@@ -977,7 +1106,7 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
         try:
             time.sleep(3)  # Đợi 5 giây cho giao dịch settle hoàn toàn
             balance = binance.fetch_balance()
-            coin_name = trading_symbol.split('/')[0]  # Lấy ADA từ ADA/JPY
+            coin_name = trading_symbol.split('/')[0]  # Lấy ADA từ ADA/base_currency
             available_coin = balance.get(coin_name, {}).get('free', 0)
             
             print(f"💰 Số dư {coin_name} khả dụng: {available_coin:.6f}")
@@ -992,55 +1121,75 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
             print(f"⚠️ Không thể kiểm tra số dư: {balance_error}")
             available_coin = actual_quantity * 0.95  # Fallback: giữ 5% buffer
         
-        # Thử đặt OCO order trước (ưu tiên cao vì giải quyết vấn đề insufficient balance)
-        print("🔄 Đang thử OCO order (One-Cancels-Other)...")
-        
+        # Kiểm tra cặp coin có hỗ trợ OCO không trước khi thử đặt OCO order
+        oco_supported = True
         try:
-            # Sử dụng 95% coin cho OCO
-            oco_quantity = available_coin * 0.95
-            
-            oco_order = binance.create_order(
-                symbol=trading_symbol,
-                type='OCO',
-                side='sell',
-                amount=oco_quantity,
-                price=tp_price,  # Take profit price
-                params={
-                    'stopPrice': stop_loss,  # Stop loss trigger price
-                    'stopLimitPrice': stop_loss * (1 - TRADING_CONFIG.get('stop_loss_buffer', 0.001)),
-                    'stopLimitTimeInForce': 'GTC'
-                }
-            )
-            orders_placed.append(oco_order)
-            oco_success = True
-            print(f"✅ OCO SUCCESS: SL ¥{stop_loss:.2f} | TP ¥{tp_price:.2f} (Quantity: {oco_quantity:.6f})")
-            print("💡 OCO đảm bảo chỉ 1 trong 2 lệnh sẽ execute, tránh insufficient balance")
-            
-            # Thêm OCO order vào danh sách theo dõi
-            add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price)
-            
-        except Exception as oco_error:
-            print(f"❌ OCO FAILED: {oco_error}")
-            print("⚠️ Chuyển sang phương án dự phòng: ưu tiên đặt Take Profit")
+            exchange_info = binance.fetch_exchange_info()
+            # Binance API dùng symbol không có dấu gạch chéo, ví dụ ADAbase_currency
+            symbol_no_slash = trading_symbol.replace('/', '')
+            symbol_info = next((s for s in exchange_info['symbols'] if s['symbol'] == symbol_no_slash), None)
+            if symbol_info:
+                permissions = symbol_info.get('permissions', [])
+                print(f"Permissions for {trading_symbol}: {permissions}")
+                if 'OCO' not in permissions:
+                    print(f"❌ {trading_symbol} does not support OCO orders via API")
+                    oco_supported = False
+            else:
+                print(f"❌ Could not find {trading_symbol} in exchange info")
+                oco_supported = False
+        except Exception as e:
+            print(f"⚠️ Error checking exchange info: {e}")
+            oco_supported = False
+
+        if oco_supported:
+            print("🔄 Đang thử OCO order (One-Cancels-Other)...")
+            try:
+                oco_quantity = available_coin
+                oco_order = binance.create_order(
+                    symbol=trading_symbol,
+                    type='OCO',
+                    side='sell',
+                    amount=oco_quantity,
+                    price=tp_price,  # Take profit price
+                    params={
+                        'stopPrice': stop_loss,  # Stop loss trigger price
+                        'stopLimitPrice': stop_loss * (1 - TRADING_CONFIG.get('stop_loss_buffer', 0.001)),
+                        'stopLimitTimeInForce': 'GTC'
+                    }
+                )
+                orders_placed.append(oco_order)
+                oco_success = True
+                # Thêm OCO order vào danh sách theo dõi với thông tin SL
+                add_order_to_monitor(oco_order['id'], trading_symbol, "OCO (SL/TP)", actual_price, stop_loss)
+            except Exception as oco_error:
+                print(f"❌ OCO FAILED: {oco_error}")
+                # Nếu là lỗi từ ccxt, in thêm mã code lỗi nếu có
+                if hasattr(oco_error, 'args') and oco_error.args:
+                    error_msg = str(oco_error.args[0])
+                    print(f"🔍 Binance error message: {error_msg}")
+                    # Nếu trả về dict có 'code' hoặc 'msg', in ra
+                    if isinstance(oco_error.args[0], dict):
+                        err_dict = oco_error.args[0]
+                        if 'code' in err_dict:
+                            print(f"🔢 Binance error code: {err_dict['code']}")
+                        if 'msg' in err_dict:
+                            print(f"💬 Binance error msg: {err_dict['msg']}")
+                print("⚠️ Chuyển sang phương án dự phòng: ưu tiên đặt Take Profit")
+                oco_success = False
+        else:
             oco_success = False
-        
+
         # Nếu OCO thất bại, đặt lệnh riêng lẻ (ưu tiên TP)
         if not oco_success:
             # CHIẾN LƯỢC MỚI: Ưu tiên TAKE PROFIT để lấy lời, SL quản lý thủ công
-            # → Tích cực hơn: đảm bảo lấy lời khi có cơ hội
-            total_reserve = available_coin * 0.95  # 95% để tránh lỗi
-            
-            print(f"💰 Chiến lược PROFIT-FIRST: ưu tiên đặt Take Profit")
-            print(f"📊 Coin khả dụng: {available_coin:.6f}")
-            print(f"🎯 Take Profit đảm bảo lấy lời 95% coin, SL quản lý thủ công")
+            # Bán 100% coin khả dụng
+            total_reserve = available_coin  # 100% để tối ưu hóa lợi nhuận
             
             # Kiểm tra minimum notional cho TP
             min_notional = 5.0
             tp_notional = total_reserve * tp_price
             
             if tp_notional < min_notional:
-                print(f"❌ TP notional quá thấp ({tp_notional:.2f} < {min_notional})")
-                print("⚠️ Không đặt được lệnh bán - quản lý hoàn toàn thủ công")
                 total_reserve = 0
             
             # 1. Ưu tiên đặt Take Profit để đảm bảo lấy lời
@@ -1053,25 +1202,19 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                         price=tp_price
                     )
                     orders_placed.append(tp_order)
-                    print(f"✅ TP: ¥{tp_price:.2f} (Quantity: {total_reserve:.6f})")
-                    add_order_to_monitor(tp_order['id'], trading_symbol, "TAKE_PROFIT", actual_price)
+                    print(f"✅ TP: ¥{tp_price:.4f} (Quantity: {total_reserve:.6f})")
+                    print(f"🛡️ SL được theo dõi tự động: ¥{stop_loss:.4f}")
+                    add_order_to_monitor(tp_order['id'], trading_symbol, "TAKE_PROFIT", actual_price, stop_loss)
                     
-                    # Thông báo về SL thủ công
-                    print(f"🛡️ SL Target: ¥{stop_loss:.2f}")
-                    print(f"💡 Monitor giá và bán thủ công khi giá xuống dưới SL")
-                    
+                    # Thông báo về SL thủ công với thông tin chi tiết
+                    profit_pct = ((tp_price / actual_price - 1) * 100)
+                    risk_pct = ((actual_price - stop_loss) / actual_price * 100)
                 except Exception as tp_error:
                     print(f"❌ Lỗi đặt TP: {tp_error}")
-                    print(f"  🔍 Chi tiết: Symbol={trading_symbol}, Quantity={total_reserve:.6f}, Price=¥{tp_price:.2f}")
-            
-            # 2. SL không được đặt tự động để tránh insufficient balance
-            print(f"⚠️ Stop Loss không được đặt tự động")
-            print(f"📝 Lý do: Binance không cho phép 2 lệnh bán cùng số lượng coin")
-            print(f"🛡️ Giải pháp: Monitor giá thủ công, bán market khi giá xuống ¥{stop_loss:.2f}")
+        
         
         # Kiểm tra số dư sau khi đặt lệnh
         final_balance = get_account_balance()
-        print(f"💰 Số dư sau: ¥{final_balance:,.2f}")
         
         # Thông báo kết quả
         total_orders = len(orders_placed)
@@ -1131,10 +1274,11 @@ def handle_inventory_coins():
         balance = binance.fetch_balance()
         inventory_coins = []
         
-        # Lấy danh sách coin có số dư > 0 (không tính JPY và USDT)
+        # Lấy danh sách coin có số dư > 0 (không tính base_currency và USDT)
+        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
         for coin, balance_info in balance.items():
-            # Bỏ qua các key không phải là coin
-            if coin in ['JPY', 'USDT', 'free', 'used', 'total', 'info']:
+            # Bỏ qua các key không phải là coin và base_currency hiện tại
+            if coin in [base_currency, 'USDT', 'free', 'used', 'total', 'info']:
                 continue
             
             # Kiểm tra balance_info có phải là dict không
@@ -1143,21 +1287,21 @@ def handle_inventory_coins():
                 
             free_balance = balance_info.get('free', 0)
             if free_balance > 0:
-                # Kiểm tra xem có symbol JPY không
-                symbol = f"{coin}/JPY"
+                # Kiểm tra xem có symbol base_currency không
+                symbol = f"{coin}"
                 try:
                     # Kiểm tra symbol có tồn tại không
-                    current_price = get_current_jpy_price(symbol)
+                    current_price = get_current_base_currency_price(symbol)
                     if current_price:
                         inventory_coins.append({
                             'coin': coin,
                             'symbol': symbol,
                             'quantity': free_balance,
                             'current_price': current_price,
-                            'value_jpy': free_balance * current_price
+                            'value_base_currency': free_balance * current_price
                         })
                 except Exception:
-                    pass  # Coin không có cặp JPY
+                    pass  # Coin không có cặp base_currency
         
         if not inventory_coins:
             print("✅ Không có coin tồn kho")
@@ -1167,9 +1311,9 @@ def handle_inventory_coins():
         total_inventory_value = 0
         
         for coin_info in inventory_coins:
-            value_jpy = coin_info['value_jpy']
-            total_inventory_value += value_jpy
-            print(f"   💰 {coin_info['coin']}: {coin_info['quantity']:.6f} ≈ ¥{value_jpy:,.2f}")
+            value_base_currency = coin_info['value_base_currency']
+            total_inventory_value += value_base_currency
+            print(f"   💰 {coin_info['coin']}: {coin_info['quantity']:.6f} ≈ ¥{value_base_currency:,.2f}")
         
         print(f"📊 Tổng giá trị tồn kho: ¥{total_inventory_value:,.2f}")
         
@@ -1209,7 +1353,7 @@ def handle_inventory_coins():
                     skipped_coins.append({
                         'coin': coin_info['coin'],
                         'quantity': quantity,
-                        'value': coin_info['value_jpy'],
+                        'value': coin_info['value_base_currency'],
                         'reason': 'minimum_amount'
                     })
                     continue
@@ -1220,7 +1364,7 @@ def handle_inventory_coins():
                     skipped_coins.append({
                         'coin': coin_info['coin'],
                         'quantity': quantity,
-                        'value': coin_info['value_jpy'],
+                        'value': coin_info['value_base_currency'],
                         'reason': 'minimum_cost'
                     })
                     continue
@@ -1244,7 +1388,7 @@ def handle_inventory_coins():
                 skipped_coins.append({
                     'coin': coin_info['coin'],
                     'quantity': coin_info['quantity'],
-                    'value': coin_info['value_jpy'],
+                    'value': coin_info['value_base_currency'],
                     'reason': f'error: {sell_error}'
                 })
         
@@ -1328,23 +1472,24 @@ def execute_auto_trading(recommendations):
     test_email_notification()
         
     try:
-        # 1. Kiểm tra số dư JPY
-        jpy_balance = get_account_balance()
-        print(f"💰 Số dư JPY: ¥{jpy_balance:,.2f}")
+        # 1. Kiểm tra số dư base_currency
+        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+        base_currency_balance = get_account_balance()
+        print(f"💰 Số dư {base_currency}: {base_currency_balance:,.2f}")
         
         # 2. Hủy orders cũ và xử lý coin tồn kho
         print("🔄 BƯỚC 1: XỬ LÝ LỆNH CŨ VÀ TỒN KHO")
         cancel_all_open_orders()
         
-        # 3. Xử lý coin tồn kho (bán hết để có JPY trading mới)
+        # 3. Xử lý coin tồn kho (bán hết để có base_currency trading mới)
         print("🔄 BƯỚC 2: THANH LÝ TỒN KHO")
         inventory_handled = handle_inventory_coins()
         
-        # 4. Cập nhật lại số dư JPY sau khi thanh lý tồn kho
-        jpy_balance = get_account_balance()
-        print(f"💰 Số dư JPY sau thanh lý: ¥{jpy_balance:,.2f}")
+        # 4. Cập nhật lại số dư base_currency sau khi thanh lý tồn kho
+        base_currency_balance = get_account_balance()
+        print(f"💰 Số dư {base_currency} sau thanh lý: {base_currency_balance:,.2f}")
         
-        if jpy_balance <= 0:
+        if base_currency_balance <= 0:
             print("❌ Không có số dư để trading sau thanh lý")
             return
         
@@ -1352,10 +1497,10 @@ def execute_auto_trading(recommendations):
         print("🔄 BƯỚC 3: PHÂN TÍCH CƠ HỘI MỚI")
         valid_recommendations = []
         for coin_data in recommendations:
-            original_symbol = f"{coin_data['coin']}/JPY"
-            current_jpy_price = get_current_jpy_price(original_symbol)
-            if current_jpy_price:
-                coin_data['current_price'] = current_jpy_price
+            original_symbol = f"{coin_data['coin']}"
+            current_base_currency_price = get_current_base_currency_price(original_symbol)
+            if current_base_currency_price:
+                coin_data['current_price'] = current_base_currency_price
                 valid_recommendations.append(coin_data)
         
         num_coins = len(valid_recommendations)
@@ -1389,17 +1534,18 @@ def execute_auto_trading(recommendations):
             best_recommendation = max(valid_recommendations, key=lambda x: x.get('confidence_score', 0))
             
             coin_data = best_recommendation
-            original_symbol = f"{coin_data['coin']}/JPY"
-            jpy_symbol = original_symbol
+            original_symbol = f"{coin_data['coin']}"
+            base_currency_symbol = original_symbol
             
             # Lấy số dư hiện tại (real-time) - ALL-IN
             balance = binance.fetch_balance()
-            current_jpy_balance = balance['free'].get('JPY', 0)
+            base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+            current_base_currency_balance = balance['free'].get(base_currency, 0)
             
             # ALL-IN toàn bộ số dư (95%)
-            investment_amount = current_jpy_balance * allocation_per_coin
-            current_jpy_price = coin_data.get('current_price')
-            quantity = investment_amount / current_jpy_price
+            investment_amount = current_base_currency_balance * allocation_per_coin
+            current_base_currency_price = coin_data.get('current_price')
+            quantity = investment_amount / current_base_currency_price
             
             print(f"🚀 ALL-IN: {coin_data['coin']} với ¥{investment_amount:,.2f} (95% số dư)")
             print(f"📈 Sử dụng tín hiệu tốt nhất: Confidence {coin_data.get('confidence_score', 0):.1f}")
@@ -1411,21 +1557,23 @@ def execute_auto_trading(recommendations):
             if missing_keys:
                 print(f"❌ Dữ liệu coin {coin_data.get('coin', 'Unknown')} thiếu key: {missing_keys}")
                 # Tạo giá trị mặc định
-                entry_jpy = current_jpy_price
-                stop_loss_jpy = current_jpy_price * 0.97  # -3% stop loss
-                tp1_jpy = current_jpy_price * 1.02       # +2% take profit
-                print(f"⚠️ Sử dụng giá trị mặc định - Entry: ¥{entry_jpy:,.2f}, SL: ¥{stop_loss_jpy:,.2f}")
+                entry_base_currency = current_base_currency_price
+                stop_loss_base_currency = current_base_currency_price * 0.97  # -3% stop loss
+                tp1_base_currency = current_base_currency_price * 1.02       # +2% take profit
+                base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+                print(f"⚠️ Sử dụng giá trị mặc định - Entry: {base_currency} {entry_base_currency:,.2f}, SL: {base_currency} {stop_loss_base_currency:,.2f}")
             else:
-                entry_jpy = coin_data['optimal_entry']
-                stop_loss_jpy = coin_data['stop_loss']
-                tp1_jpy = coin_data['tp_price']  # Chỉ còn 1 TP
+                entry_base_currency = coin_data['optimal_entry']
+                stop_loss_base_currency = coin_data['stop_loss']
+                tp1_base_currency = coin_data['tp_price']  # Chỉ còn 1 TP
             
-            print(f"🎯 ALL-IN {jpy_symbol}: Entry ¥{entry_jpy:.2f} | Đầu tư ¥{investment_amount:,.2f}")
+            base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+            print(f"🎯 ALL-IN {base_currency_symbol}: Entry {base_currency} {entry_base_currency:.2f} | Đầu tư {base_currency} {investment_amount:,.2f}")
             
             # Execute all-in trade
-            if current_jpy_balance >= investment_amount:
+            if current_base_currency_balance >= investment_amount:
                 result = place_buy_order_with_sl_tp(
-                    jpy_symbol, quantity, entry_jpy, stop_loss_jpy, tp1_jpy
+                    base_currency_symbol, quantity, entry_base_currency, stop_loss_base_currency, tp1_base_currency
                 )
                 
                 if result['status'] == 'success':
@@ -1435,33 +1583,34 @@ def execute_auto_trading(recommendations):
                 else:
                     print(f"❌ ALL-IN THẤT BẠI: {coin_data['coin']} - {result.get('error', 'Unknown error')}")
             else:
-                print(f"❌ Số dư không đủ cho ALL-IN: ¥{current_jpy_balance:,.2f} < ¥{investment_amount:,.2f}")
+                print(f"❌ Số dư không đủ cho ALL-IN: ¥{current_base_currency_balance:,.2f} < ¥{investment_amount:,.2f}")
         
         else:
             # Logic cũ: Chia đều cho nhiều coins khác nhau
             for i, coin_data in enumerate(recommendations):
                 try:
-                    original_symbol = f"{coin_data['coin']}/JPY"
-                    # Trade trực tiếp JPY
-                    jpy_symbol = original_symbol
+                    original_symbol = f"{coin_data['coin']}"
+                    # Trade trực tiếp base_currency
+                    base_currency_symbol = original_symbol
                     
-                    # Lấy giá hiện tại JPY (đã có từ validation trước đó)
-                    current_jpy_price = coin_data.get('current_price')
-                    if not current_jpy_price:
-                        current_jpy_price = get_current_jpy_price(original_symbol)
-                        if not current_jpy_price:
-                            print(f"❌ Không thể lấy giá {jpy_symbol}")
+                    # Lấy giá hiện tại base_currency (đã có từ validation trước đó)
+                    current_base_currency_price = coin_data.get('current_price')
+                    if not current_base_currency_price:
+                        current_base_currency_price = get_current_base_currency_price(original_symbol)
+                        if not current_base_currency_price:
+                            print(f"❌ Không thể lấy giá {base_currency_symbol}")
                             continue
                     
-                    # Lấy số dư hiện tại (real-time) - chỉ JPY
+                    # Lấy số dư hiện tại (real-time) - chỉ base_currency
                     balance = binance.fetch_balance()
-                    current_jpy_balance = balance['free'].get('JPY', 0)
+                    base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+                    current_base_currency_balance = balance['free'].get(base_currency, 0)
                     
                     # Tính toán số tiền đầu tư - chia đều
-                    investment_amount = current_jpy_balance * allocation_per_coin
+                    investment_amount = current_base_currency_balance * allocation_per_coin
                     
                     # Tính số lượng coin
-                    quantity = investment_amount / current_jpy_price
+                    quantity = investment_amount / current_base_currency_price
                     
                     # Validation: Kiểm tra dữ liệu coin có đầy đủ không
                     required_keys = ['optimal_entry', 'stop_loss', 'tp_price']
@@ -1472,43 +1621,45 @@ def execute_auto_trading(recommendations):
                         print(f"  Available keys: {list(coin_data.keys())}")
                         
                         # Tạo giá trị mặc định dựa trên giá hiện tại
-                        entry_jpy = current_jpy_price
-                        stop_loss_jpy = current_jpy_price * 0.97  # -3% stop loss
-                        tp1_jpy = current_jpy_price * 1.02       # +2% take profit
+                        entry_base_currency = current_base_currency_price
+                        stop_loss_base_currency = current_base_currency_price * 0.97  # -3% stop loss
+                        tp1_base_currency = current_base_currency_price * 1.02       # +2% take profit
                         
-                        print(f"⚠️ Sử dụng giá trị mặc định - Entry: ¥{entry_jpy:,.2f}, SL: ¥{stop_loss_jpy:,.2f}")
+                        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+                        print(f"⚠️ Sử dụng giá trị mặc định - Entry: {base_currency} {entry_base_currency:,.2f}, SL: {base_currency} {stop_loss_base_currency:,.2f}")
                     else:
-                        # Lấy thông tin giá từ khuyến nghị (JPY)
-                        entry_jpy = coin_data['optimal_entry']
-                        stop_loss_jpy = coin_data['stop_loss']
-                        tp1_jpy = coin_data['tp_price']  # Chỉ còn 1 TP
+                        # Lấy thông tin giá từ khuyến nghị (base_currency)
+                        entry_base_currency = coin_data['optimal_entry']
+                        stop_loss_base_currency = coin_data['stop_loss']
+                        tp1_base_currency = coin_data['tp_price']  # Chỉ còn 1 TP
                     
-                    print(f"🎯 {jpy_symbol}: Entry ¥{entry_jpy:.2f} | Đầu tư ¥{investment_amount:,.2f}")
+                    base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+                    print(f"🎯 {base_currency_symbol}: Entry {base_currency} {entry_base_currency:.2f} | Đầu tư {base_currency} {investment_amount:,.2f}")
                     
                     # Trading đơn giản - chia đều số dư
-                    if current_jpy_balance >= investment_amount:
-                        # Đủ JPY - trade trực tiếp
+                    if current_base_currency_balance >= investment_amount:
+                        # Đủ base_currency - trade trực tiếp
                         result = place_buy_order_with_sl_tp(
-                            original_symbol, quantity, entry_jpy, 
-                            stop_loss_jpy, tp1_jpy
+                            original_symbol, quantity, entry_base_currency, 
+                            stop_loss_base_currency, tp1_base_currency
                         )
                     else:
-                        # Không đủ JPY
-                        print(f"❌ Bỏ qua {coin_data['coin']}: Không đủ JPY (cần ¥{investment_amount:,.2f}, có ¥{current_jpy_balance:,.2f})")
+                        # Không đủ base_currency
+                        print(f"❌ Bỏ qua {coin_data['coin']}: Không đủ base_currency (cần ¥{investment_amount:,.2f}, có ¥{current_base_currency_balance:,.2f})")
                         continue
                     
                     if result['status'] == 'success':
                         successful_trades += 1
                         total_invested += investment_amount
-                        print(f"✅ {jpy_symbol} thành công!")
+                        print(f"✅ {base_currency_symbol} thành công!")
                         
                         # Thông báo chi tiết (silent email)
                         send_notification(
-                            f"✅ Mua thành công {coin_data['coin']}: ¥{investment_amount:,.0f} @ ¥{entry_jpy:.2f}",
+                            f"✅ Mua thành công {coin_data['coin']}: ¥{investment_amount:,.0f} @ ¥{entry_base_currency:.2f}",
                             urgent=False
                         )
                     else:
-                        print(f"❌ {jpy_symbol} thất bại: {result.get('error', 'Unknown error')}")
+                        print(f"❌ {base_currency_symbol} thất bại: {result.get('error', 'Unknown error')}")
                     
                     # Delay giữa các trades
                     if i < len(recommendations) - 1:  # Không delay sau trade cuối
@@ -1528,34 +1679,31 @@ def execute_auto_trading(recommendations):
         else:
             print(f"✅ Thành công: {successful_trades}/{len(valid_recommendations)}")
             print(f"❌ Thất bại: {failed_trades}")
-        print(f"💰 Đầu tư mới: ¥{total_invested:.2f}")
-        print(f"💰 Số dư cuối: ¥{final_balance:.2f}")
+        print(f"💰 Đầu tư mới: {total_invested:.2f} {base_currency}")
+        print(f"💰 Số dư cuối: {final_balance:.2f} {base_currency}")
         print("=" * 50)
         
     except Exception as e:
         print(f"❌ Lỗi nghiêm trọng: {e}")
 
-# Hàm lấy danh sách cặp crypto/JPY từ Binance
-def get_jpy_pairs():
-    # Phân tích các cặp JPY để đưa ra khuyến nghị, nhưng trade bằng USDT
-    selected_pairs = ['ADA/JPY', 'XRP/JPY', 'XLM/JPY', 'SUI/JPY']
+# Hàm lấy danh sách cặp crypto/base_currency từ Binance
+def get_base_currency_pairs():
+    """Lấy danh sách cặp giao dịch theo base_currency từ cấu hình"""
+    base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+    coins = ['ADA', 'XRP', 'XLM', 'SUI']
+    selected_pairs = [f"{coin}/{base_currency}" for coin in coins]
     
     try:
         markets = binance.load_markets()
-        # Kiểm tra các cặp có tồn tại không (sẽ kiểm tra cả JPY cho phân tích và USDT cho trading)
+        # Kiểm tra các cặp có tồn tại không
         available_pairs = []
         for pair in selected_pairs:
-            # Kiểm tra cặp JPY cho phân tích
             if pair in markets:
                 available_pairs.append(pair)
-            else:
-                # Nếu không có JPY, thử USDT
-                usdt_pair = pair.replace('/JPY', '/USDT')
-                if usdt_pair in markets:
-                    available_pairs.append(pair)  # Vẫn giữ tên JPY cho phân tích
         
-        return available_pairs
+        return available_pairs if available_pairs else selected_pairs  # Fallback
     except Exception as e:
+        return selected_pairs  # Fallback về danh sách gốc
         return selected_pairs  # Fallback về danh sách gốc
 
 # Hàm lấy dữ liệu giá từ Binance
@@ -1696,7 +1844,7 @@ def validate_minimum_notional(symbol, quantity, price):
             }
         
         market_info = markets[symbol]
-        min_notional = market_info.get('limits', {}).get('cost', {}).get('min', 1000)  # Default 1000 JPY
+        min_notional = market_info.get('limits', {}).get('cost', {}).get('min', 1000)  # Default 1000 base_currency
         
         notional_value = quantity * price
         
@@ -2468,7 +2616,7 @@ def analyze_scalping_opportunity(symbol, current_price, order_book_analysis, df,
     
     # Tạo opportunity object
     opportunity = {
-        'coin': symbol.replace('/JPY', ''),
+        'coin': symbol,
         'current_price': current_price,
         'analysis_type': 'SCALPING_15M',
         'confidence': scalping_opportunity,
@@ -2618,8 +2766,9 @@ def analyze_scalping_opportunity(symbol, current_price, order_book_analysis, df,
     })
     
     # Log kết quả
+    base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
     print(f"✅ SCALPING OPPORTUNITY: {symbol}")
-    print(f"   🎯 Entry: ¥{optimal_entry:.4f} | TP: ¥{tp_price:.4f} (+{tp_percent:.2f}%)")
+    print(f"   🎯 Entry: {base_currency} {optimal_entry:.4f} | TP: {base_currency} {tp_price:.4f} (+{tp_percent:.2f}%)")
     print(f"   🛡️ SL: ¥{stop_loss:.4f} (-{sl_percent:.2f}%) | R/R: {risk_reward_ratio:.2f}")
     print(f"   📊 Confidence: {final_confidence:.0f}/100 | Size: {risk_adjustment['position_size_multiplier']:.1f}x")
     
@@ -2658,7 +2807,7 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
                 return None
     
     opportunity = {
-        'coin': symbol.replace('/JPY', ''),
+        'coin': symbol,
         'current_price': current_price,
         'analysis_type': 'ORDER_BOOK_BASED',
         'confidence': 'MEDIUM',
@@ -2698,7 +2847,8 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
         stop_loss = dynamic_calculation['stop_loss']
         
         print(f"📊 Dynamic calculation for {symbol}:")
-        print(f"   🎯 Entry: ¥{entry_price:.4f} ({dynamic_calculation['buffer_adjustment']})")
+        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+        print(f"   🎯 Entry: {base_currency} {entry_price:.4f} ({dynamic_calculation['buffer_adjustment']})")
         print(f"   📈 TP: ¥{tp_price:.4f} ({dynamic_calculation['tp_reasoning']})")
         print(f"   📉 SL: ¥{stop_loss:.4f} ({dynamic_calculation['sl_reasoning']})")
         print(f"   ⚖️ Risk/Reward: {dynamic_calculation['risk_reward_ratio']:.2f}")
@@ -2784,9 +2934,10 @@ def analyze_orderbook_opportunity(symbol, current_price, order_book_analysis, df
     })
     
     # Log kết quả
+    base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
     if downtrend_detected:
         print(f"✅ ACCEPTED with PROTECTION: {symbol} ({downtrend_strength} downtrend)")
-        print(f"   Entry: ¥{entry_price:.4f} | TP: ¥{tp_price:.4f} | SL: ¥{stop_loss:.4f}")
+        print(f"   Entry: {base_currency} {entry_price:.4f} | TP: {base_currency} {tp_price:.4f} | SL: {base_currency} {stop_loss:.4f}")
         print(f"   R/R: {risk_reward_ratio:.2f} | Confidence: {final_confidence}/100")
     
     return opportunity
@@ -2803,19 +2954,19 @@ def find_scalping_opportunities_15m(min_confidence=45):
     - TP/SL nhỏ, phù hợp cho scalping
     """
     try:
-        jpy_pairs = get_jpy_pairs()
-        if not jpy_pairs:
-            print("Không tìm thấy cặp JPY nào.")
+        base_currency_pairs = get_base_currency_pairs()
+        if not base_currency_pairs:
+            print("Không tìm thấy cặp base_currency nào.")
             return []
         
-        print(f"🎯 TÌM CƠ HỘI SCALPING 15M cho {len(jpy_pairs)} cặp...")
+        print(f"🎯 TÌM CƠ HỘI SCALPING 15M cho {len(base_currency_pairs)} cặp...")
         print(f"🔍 Strategy: Tận dụng sóng ngắn hạn + Oversold bounce")
         
         opportunities = []
         
-        for i, symbol in enumerate(jpy_pairs):
+        for i, symbol in enumerate(base_currency_pairs):
             try:
-                print(f"⚡ Scalping analysis {symbol} ({i+1}/{len(jpy_pairs)})...")
+                print(f"⚡ Scalping analysis {symbol} ({i+1}/{len(base_currency_pairs)})...")
                 
                 # Lấy dữ liệu 15m (ít hơn cho tốc độ)
                 df = get_crypto_data(symbol, timeframe='15m', limit=100)  # 100 candles = ~25 hours data
@@ -2869,9 +3020,10 @@ def find_scalping_opportunities_15m(min_confidence=45):
         print(f"\n🎯 SCALPING OPPORTUNITIES FOUND: {len(opportunities)}")
         
         # Show top opportunities
+        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
         for i, opp in enumerate(opportunities[:3]):
             print(f"  {i+1}. {opp['coin']}: {opp['scalping_opportunity']} confidence")
-            print(f"     Entry: ¥{opp['entry_price']:.4f} | Target: +{opp['reward_percent']:.2f}% | Risk: -{opp['risk_percent']:.2f}%")
+            print(f"     Entry: {base_currency} {opp['entry_price']:.4f} | Target: +{opp['reward_percent']:.2f}% | Risk: -{opp['risk_percent']:.2f}%")
         
         return opportunities[:3]  # Top 3 scalping opportunities
         
@@ -2885,17 +3037,17 @@ def find_orderbook_opportunities(timeframe='30m', min_confidence=50):
     Tìm cơ hội giao dịch dựa trên sổ lệnh khi không có tín hiệu kỹ thuật - TỐI ƯU TỐC ĐỘ
     """
     try:
-        jpy_pairs = get_jpy_pairs()  # Sẽ lấy danh sách cặp đã được lọc
-        if not jpy_pairs:
-            print("Không tìm thấy cặp JPY nào.")
+        base_currency_pairs = get_base_currency_pairs()  # Sẽ lấy danh sách cặp đã được lọc
+        if not base_currency_pairs:
+            print("Không tìm thấy cặp base_currency nào.")
             return []
         
-        print(f"🔍 Phân tích cơ hội từ sổ lệnh cho {len(jpy_pairs)} cặp được chọn...")
+        print(f"🔍 Phân tích cơ hội từ sổ lệnh cho {len(base_currency_pairs)} cặp được chọn...")
         opportunities = []
         
-        for i, symbol in enumerate(jpy_pairs):
+        for i, symbol in enumerate(base_currency_pairs):
             try:
-                print(f"Phân tích sổ lệnh {symbol} ({i+1}/{len(jpy_pairs)})...")
+                print(f"Phân tích sổ lệnh {symbol} ({i+1}/{len(base_currency_pairs)})...")
                 
                 # Lấy ít dữ liệu hơn để tăng tốc
                 df = get_crypto_data(symbol, timeframe=timeframe, limit=50)  # Giảm từ 100 xuống 50
@@ -3074,6 +3226,10 @@ def check_and_process_sell_orders():
     if not ACTIVE_ORDERS:
         print("  Không có lệnh nào đang theo dõi")
         return
+    
+    # BƯỚC MỚI: Kiểm tra SL trigger trước khi kiểm tra status lệnh
+    print("🔍 Kiểm tra SL triggers trước...")
+    check_and_handle_stop_loss_trigger()
     
     print(f"🔍 Đang kiểm tra {len(ACTIVE_ORDERS)} lệnh...")
     
@@ -3623,17 +3779,17 @@ def find_best_coins(timeframe='30m', min_win_rate=None, min_profit_potential=Non
         min_profit_potential = config.MIN_PROFIT_POTENTIAL
         
     try:
-        jpy_pairs = get_jpy_pairs()
-        if not jpy_pairs:
+        base_currency_pairs = get_base_currency_pairs()
+        if not base_currency_pairs:
             print("Không tìm thấy cặp nào để phân tích.")
             return []
             
-        print(f"Đang phân tích {len(jpy_pairs)} cặp được chọn với Win Rate >= {min_win_rate}%, Profit >= {min_profit_potential}%, Mode: {signal_mode}...")
+        print(f"Đang phân tích {len(base_currency_pairs)} cặp được chọn với Win Rate >= {min_win_rate}%, Profit >= {min_profit_potential}%, Mode: {signal_mode}...")
         results = []
         
-        for i, symbol in enumerate(jpy_pairs):
+        for i, symbol in enumerate(base_currency_pairs):
             try:
-                print(f"Đang phân tích {symbol} ({i+1}/{len(jpy_pairs)})...")
+                print(f"Đang phân tích {symbol} ({i+1}/{len(base_currency_pairs)})...")
                 
                 # Lấy ít dữ liệu hơn để tăng tốc
                 limit = 200 if signal_mode in ['emergency', 'lstm_only'] else 500  # Giảm từ 1000
@@ -3703,7 +3859,7 @@ def find_best_coins(timeframe='30m', min_win_rate=None, min_profit_potential=Non
                             continue
                         
                         results.append({
-                            'coin': symbol.replace('/JPY', ''),
+                            'coin': symbol,
                             'current_price': current_price,
                             'optimal_entry': optimal_entry,
                             'stop_loss': stop_loss,
@@ -3782,13 +3938,13 @@ def find_best_coins_silent(timeframe='30m', min_win_rate=None, min_profit_potent
         min_profit_potential = config.MIN_PROFIT_POTENTIAL
         
     try:
-        jpy_pairs = get_jpy_pairs()
-        if not jpy_pairs:
+        base_currency_pairs = get_base_currency_pairs()
+        if not base_currency_pairs:
             return []
             
         results = []
         
-        for symbol in jpy_pairs:
+        for symbol in base_currency_pairs:
             try:
                 # Lấy ít dữ liệu hơn để tăng tốc
                 limit = 200 if signal_mode in ['emergency', 'lstm_only'] else 500
@@ -3846,7 +4002,7 @@ def find_best_coins_silent(timeframe='30m', min_win_rate=None, min_profit_potent
                             continue
                         
                         results.append({
-                            'coin': symbol.replace('/JPY', ''),
+                            'coin': symbol,
                             'current_price': current_price,
                             'optimal_entry': optimal_entry,
                             'stop_loss': stop_loss,
@@ -3895,13 +4051,13 @@ def find_best_coins_silent(timeframe='30m', min_win_rate=None, min_profit_potent
 # Hàm tìm cơ hội orderbook - SILENT MODE  
 def find_orderbook_opportunities_silent(timeframe='30m', min_confidence=50):
     try:
-        jpy_pairs = get_jpy_pairs()
-        if not jpy_pairs:
+        base_currency_pairs = get_base_currency_pairs()
+        if not base_currency_pairs:
             return []
         
         opportunities = []
         
-        for symbol in jpy_pairs:
+        for symbol in base_currency_pairs:
             try:
                 # Lấy ít dữ liệu hơn để tăng tốc
                 df = get_crypto_data(symbol, timeframe=timeframe, limit=50)
@@ -4002,24 +4158,25 @@ def execute_scalping_trading():
             print("❌ Bot đã dừng")
             return {'success': False, 'error': 'Bot stopped'}
         
-        # Kiểm tra kết nối API
-        try:
-            balance = binance.fetch_balance()
-            jpy_balance = balance['JPY']['free'] if 'JPY' in balance else 0
-            print(f"💰 Số dư: ¥{jpy_balance:,.2f}")
-            
-            if jpy_balance < 1000:  # Cần ít nhất 1000 JPY cho scalping
+        # Kiểm tra kết nối API và số dư
+        balance_check = validate_trading_balance(min_balance=1000)
+        
+        if not balance_check['sufficient']:
+            if balance_check['error']:
+                print(f"❌ Lỗi API: {balance_check['error']}")
+                return {'success': False, 'error': f'API error: {balance_check["error"]}'}
+            else:
                 print("❌ Số dư không đủ cho scalping (cần ít nhất ¥1,000)")
                 return {'success': False, 'error': 'Insufficient balance'}
-        except Exception as e:
-            print(f"❌ Lỗi API: {e}")
-            return {'success': False, 'error': f'API error: {e}'}
+        
+        base_currency_balance = balance_check['balance']
+        print(f"💰 Số dư: ¥{base_currency_balance:,.2f}")
         
         # Load active orders từ file
         load_active_orders_from_file()
         
-        # BƯỚC 2: KIỂM TRA VÀ XỬ LÝ LỆNH CŨ
-        print("🔍 Bước 1: Kiểm tra lệnh cũ...")
+        # BƯỚC 2: KIỂM TRA VÀ XỬ LÝ LỆNH CŨ + SL TRIGGERS
+        print("🔍 Bước 1: Kiểm tra lệnh cũ và SL triggers...")
         check_and_process_sell_orders()
         
         # BƯỚC 3: XỬ LÝ TỒN KHO (nếu có)
@@ -4046,10 +4203,11 @@ def execute_scalping_trading():
         print(f"   ⚖️ R/R: {best_opportunity['risk_reward_ratio']:.2f}")
         
         # BƯỚC 6: EXECUTE SCALPING TRADE
-        symbol = f"{best_opportunity['coin']}/JPY"
+        symbol = f"{best_opportunity['coin']}"
         
         # Tính toán position size cho scalping
-        current_balance = binance.fetch_balance()['JPY']['free']
+        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+        current_balance = binance.fetch_balance()[base_currency]['free']
         position_multiplier = best_opportunity['position_size_multiplier']
         
         # Scalping: Sử dụng 80-95% balance tùy confidence
@@ -4078,8 +4236,9 @@ def execute_scalping_trading():
         )
         
         if result['status'] == 'success':
+            base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
             print(f"✅ SCALPING ORDER PLACED: {symbol}")
-            print(f"   🎯 Entry: ¥{best_opportunity['entry_price']:.4f}")
+            print(f"   🎯 Entry: {base_currency} {best_opportunity['entry_price']:.4f}")
             print(f"   📈 TP: ¥{best_opportunity['tp_price']:.4f} (+{best_opportunity['reward_percent']:.2f}%)")
             print(f"   📉 SL: ¥{best_opportunity['stop_loss']:.4f} (-{best_opportunity['risk_percent']:.2f}%)")
             
@@ -4129,20 +4288,24 @@ def execute_systematic_trading():
             print("❌ Bot đã dừng")
             return
         
-        # Kiểm tra kết nối API
-        try:
-            balance = binance.fetch_balance()
-            jpy_balance = balance['JPY']['free'] if 'JPY' in balance else 0
-            print(f"💰 Số dư: ¥{jpy_balance:,.2f}")
-        except Exception as e:
-            print(f"❌ Lỗi API: {e}")
-            return
+        # Kiểm tra kết nối API và số dư
+        balance_check = validate_trading_balance(min_balance=0)  # No minimum for systematic
+        
+        if balance_check['error']:
+            print(f"❌ Lỗi API: {balance_check['error']}")
+            return {'success': False, 'error': f'API error: {balance_check["error"]}'}
+        
+        base_currency_balance = balance_check['balance']
+        print(f"💰 Số dư: ¥{base_currency_balance:,.2f}")
         
         # Load active orders từ file
         load_active_orders_from_file()
         
-        # BƯỚC 2: KIỂM TRA LỆNH CŨ VÀ TỒN KHO
-        print("📦 Kiểm tra tồn kho")
+        # BƯỚC 2: KIỂM TRA LỆNH CŨ VÀ TỒN KHO + SL TRIGGERS
+        print("📦 Kiểm tra tồn kho và SL triggers")
+        
+        # Kiểm tra SL triggers trước khi phân tích tồn kho
+        check_and_handle_stop_loss_trigger()
         
         # 2.1 Kiểm tra lệnh cũ - PHƯƠNG PHÁP TỐI ƯU
         old_orders = []
@@ -4198,21 +4361,21 @@ def execute_systematic_trading():
                     
                 free_balance = balance_info.get('free', 0)
                 if free_balance > 0:
-                    symbol = f"{coin}/JPY"
+                    symbol = f"{coin}"
                     try:
-                        current_price = get_current_jpy_price(symbol)
+                        current_price = get_current_base_currency_price(symbol)
                         if current_price:
                             inventory_coins.append({
                                 'coin': coin,
                                 'symbol': symbol,
                                 'quantity': free_balance,
                                 'current_price': current_price,
-                                'value_jpy': free_balance * current_price
+                                'value_base_currency': free_balance * current_price
                             })
                     except Exception:
                         pass
             
-            total_inventory_value = sum(coin['value_jpy'] for coin in inventory_coins)
+            total_inventory_value = sum(coin['value_base_currency'] for coin in inventory_coins)
             if inventory_coins:
                 print(f"💰 {len(inventory_coins)} coin tồn kho: ¥{total_inventory_value:,.2f}")
                 
@@ -4224,13 +4387,13 @@ def execute_systematic_trading():
         
         best_opportunity = None
         scalping_opportunity = None
-        jpy_pairs = get_jpy_pairs()
+        base_currency_pairs = get_base_currency_pairs()
         
         # === CƠ HỘI CẤP 1: SYSTEMATIC TRADING 30M ===
         print("📊 Level 1: Systematic Trading 30m...")
         systematic_opportunities = []
         
-        for symbol in jpy_pairs:
+        for symbol in base_currency_pairs:
             try:
                 # Lấy dữ liệu 30m (theo yêu cầu)
                 df_30m = get_crypto_data(symbol, timeframe='30m', limit=200)
@@ -4275,7 +4438,7 @@ def execute_systematic_trading():
             print("⚡ Level 2: Scalping 15m (fallback)...")
             
             scalping_opportunities = []
-            for symbol in jpy_pairs:
+            for symbol in base_currency_pairs:
                 try:
                     # Lấy dữ liệu 15m cho scalping
                     df_15m = get_crypto_data(symbol, timeframe='15m', limit=100)
@@ -4339,7 +4502,7 @@ def execute_systematic_trading():
         print(f"📉 Phân tích downtrend cho {selected_opportunity['coin']}")
         
         # Phân tích downtrend cho coin được chọn (để validate quyết định)
-        selected_symbol = f"{selected_opportunity['coin']}/JPY"
+        selected_symbol = f"{selected_opportunity['coin']}"
         try:
             if strategy_used == "SYSTEMATIC_30M":
                 df_analysis = get_crypto_data(selected_symbol, timeframe='30m', limit=200)
@@ -4370,7 +4533,8 @@ def execute_systematic_trading():
         
         # Execute trading với strategy đã chọn
         try:
-            current_balance = binance.fetch_balance()['JPY']['free']
+            base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+            current_balance = binance.fetch_balance()[base_currency]['free']
             if current_balance < 1000:
                 print("❌ Số dư không đủ để trading")
                 return {'success': False, 'error': 'Insufficient balance'}
@@ -4395,10 +4559,11 @@ def execute_systematic_trading():
             final_allocation = allocation * position_multiplier
             
             investment_amount = current_balance * final_allocation
-            symbol = f"{selected_opportunity['coin']}/JPY"
+            symbol = f"{selected_opportunity['coin']}"
             quantity = investment_amount / selected_opportunity['entry_price']
             
-            print(f"💰 Investment: ¥{investment_amount:,.0f} ({final_allocation*100:.0f}% balance)")
+            base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+            print(f"💰 Investment: {base_currency} {investment_amount:,.0f} ({final_allocation*100:.0f}% balance)")
             print(f"📊 Quantity: {quantity:.6f} {selected_opportunity['coin']}")
             
             # Execute trade
@@ -4412,8 +4577,8 @@ def execute_systematic_trading():
             
             if result['status'] == 'success':
                 print(f"✅ {strategy_used} ORDER SUCCESS: {symbol}")
-                print(f"   🎯 Entry: ¥{selected_opportunity['entry_price']:.4f}")
-                print(f"   📈 TP: ¥{selected_opportunity['tp_price']:.4f}")
+                print(f"   🎯 Entry: {base_currency} {selected_opportunity['entry_price']:.4f}")
+                print(f"   📈 TP: {base_currency} {selected_opportunity['tp_price']:.4f}")
                 print(f"   📉 SL: ¥{selected_opportunity['stop_loss']:.4f}")
                 
                 # Send notification
@@ -4443,110 +4608,6 @@ def execute_systematic_trading():
         except Exception as e:
             print(f"❌ Lỗi execute trading: {e}")
             return {'success': False, 'error': str(e)}
-            
-            if downtrend_analysis and downtrend_analysis['detected']:
-                strength = downtrend_analysis['strength']
-                quantity = coin_info['quantity']
-                current_price = coin_info['current_price']
-                
-                # Kiểm tra có thể bán không
-                sell_check = can_sell_coin(symbol, quantity * 0.995, current_price)  # 0.5% buffer
-                
-                if not sell_check['can_sell']:
-                    print(f"⚠️ {symbol} đang downtrend ({strength}) → KHÔNG THỂ BÁN")
-                    print(f"   🔧 Loại lỗi: {sell_check['type']}")
-                    
-                    # Gợi ý giải pháp cụ thể
-                    if sell_check['type'] == 'QUANTITY_TOO_SMALL':
-                        print(f"   💰 Số lượng hiện có: {quantity:.6f}, cần tối thiểu để bán")
-                    continue
-                
-                print(f"🔻 {symbol} đang downtrend ({strength}) → BÁN")
-                
-                try:
-                    # Sử dụng adjusted quantity từ validation
-                    adjusted_quantity = sell_check['adjusted_quantity']
-                    
-                    sell_order = binance.create_market_sell_order(symbol, adjusted_quantity)
-                    
-                    actual_quantity = float(sell_order['filled'])
-                    actual_price = float(sell_order['average']) if sell_order['average'] else current_price
-                    sold_value = actual_quantity * actual_price
-                    
-                    coins_sold += 1
-                    total_sold_value += sold_value
-                    
-                    print(f"   ✅ Đã bán {actual_quantity:.6f} {coin_info['coin']} @ ¥{actual_price:.2f} = ¥{sold_value:,.2f}")
-                    
-                    # Cập nhật position manager
-                    position_manager.remove_position(symbol, actual_quantity)
-                    
-                except Exception as e:
-                    print(f"   ❌ Lỗi bán {symbol}: {e}")
-            else:
-                print(f"✅ {symbol} không downtrend → GIỮ")
-        
-        # 5.2 Xử lý coin cơ hội mới
-        if best_opportunity:
-            new_coin_symbol = f"{best_opportunity['coin']}/JPY"
-            downtrend_analysis = downtrend_results.get(new_coin_symbol)
-            
-            if downtrend_analysis and downtrend_analysis['detected']:
-                print(f"🔻 Không mua {best_opportunity['coin']} (downtrend)")
-            else:
-                print(f"✅ Mua {best_opportunity['coin']} với 30% vốn")
-                
-                # Lấy số dư hiện tại
-                current_balance = get_account_balance()
-                investment_amount = current_balance * 0.30  # 30% vốn
-                
-                if investment_amount > 0:
-                    try:
-                        # Thực hiện lệnh mua
-                        current_price = get_current_jpy_price(new_coin_symbol)
-                        if current_price:
-                            quantity = investment_amount / current_price
-                            
-                            result = place_buy_order_with_sl_tp(
-                                new_coin_symbol,
-                                quantity,
-                                best_opportunity.get('entry_price', current_price),
-                                best_opportunity.get('stop_loss', current_price * 0.98),
-                                best_opportunity.get('tp_price', current_price * 1.004)
-                            )
-                            
-                            if result['status'] == 'success':
-                                print(f"   ✅ Đã mua ¥{investment_amount:,.0f}")
-                            else:
-                                print(f"   ❌ Lỗi mua: {result.get('error', 'Unknown')}")
-                    except Exception as e:
-                        print(f"   ❌ Lỗi: {e}")
-                else:
-                    print("   ⚠️ Không đủ số dư")
-        
-        # BƯỚC 6: CẬP NHẬT DỮ LIỆU
-        save_active_orders_to_file()
-        
-        try:
-            position_summary = position_manager.get_position_summary()
-        except Exception as e:
-            pass
-        
-        # Tổng kết ngắn gọn
-        print(f"\n✅ Hoàn tất: Bán {coins_sold} coin, ¥{total_sold_value:,.0f}")
-        if best_opportunity:
-            print(f"🎯 Cơ hội: {best_opportunity['coin']}")
-        
-        return {
-            'success': True,
-            'old_orders': len(old_orders),
-            'inventory_coins': len(inventory_coins),
-            'coins_sold': coins_sold,
-            'total_sold_value': total_sold_value,
-            'best_opportunity': best_opportunity,
-            'downtrend_results': downtrend_results,
-            'active_orders': len(ACTIVE_ORDERS)
-        }
         
     except Exception as e:
         print(f"❌ Lỗi: {e}")
@@ -4608,7 +4669,7 @@ def print_results():
             
             for coin_data in sorted_technical:
                 displayed_coins += 1
-                print(f"\n #{displayed_coins}. {coin_data['coin']}/JPY (Timeframe: {coin_data['timeframe']})")
+                print(f"\n #{displayed_coins}. {coin_data['coin']}/base_currency (Timeframe: {coin_data['timeframe']})")
                 print(f"  Giá hiện tại: ¥{coin_data['current_price']:.2f}")
                 print(f"  Giá vào lệnh: ¥{coin_data.get('optimal_entry', 0):.2f}")
                 print(f"🛡️ Stop Loss: ¥{coin_data.get('stop_loss', 0):.2f} (-{coin_data.get('risk_percent', 0):.2f}%)")
@@ -4632,7 +4693,7 @@ def print_results():
                 
                 for opp in sorted_orderbook:
                     displayed_coins += 1
-                    print(f"\n #{displayed_coins}. {opp['coin']}/JPY (Timeframe: {opp['timeframe']})")
+                    print(f"\n #{displayed_coins}. {opp['coin']}/base_currency (Timeframe: {opp['timeframe']})")
                     print(f"  Giá hiện tại: ¥{opp['current_price']:.2f}")
                     print(f"  Giá vào lệnh: ¥{opp['entry_price']:.2f}")
                     print(f"🛡️ Stop Loss: ¥{opp['stop_loss']:.2f} (-{opp['risk_percent']:.2f}%)")
@@ -4737,100 +4798,98 @@ initialize_order_monitoring()
 # ======================== MAIN ENTRY POINT ========================
 
 # Hàm tóm tắt tất cả tính năng mới được thêm
-def main():
+def check_manual_stop_loss_triggers():
+    """
+    Kiểm tra và thông báo khi giá chạm manual stop loss targets
+    """
+    try:
+        # Đọc active orders để tìm positions cần monitor SL
+        if not ACTIVE_ORDERS:
+            return
+            
+        for order_id, order_info in ACTIVE_ORDERS.items():
+            if order_info.get('order_type') == 'TAKE_PROFIT':
+                symbol = order_info['symbol']
+                buy_price = order_info.get('buy_price', 0)
+                
+                if buy_price > 0:
+                    # Tính SL target (giả sử -0.8% cho systematic, -0.6% cho scalping)
+                    sl_target = buy_price * 0.992  # -0.8% default
+                    
+                    try:
+                        current_price = get_current_base_currency_price(symbol)
+                        if current_price and current_price <= sl_target:
+                            print(f"🚨 MANUAL SL TRIGGER for {symbol}:")
+                            print(f"   📉 Current: ¥{current_price:.4f} ≤ SL Target: ¥{sl_target:.4f}")
+                            print(f"   ⚠️ RECOMMEND: Market sell {order_info.get('amount', 'N/A')} {symbol.split('/')[0]}")
+                            
+                            # Gửi notification urgent
+                            send_notification(
+                                f"🚨 Manual SL Trigger: {symbol} @ ¥{current_price:.4f} ≤ ¥{sl_target:.4f}",
+                                urgent=True
+                            )
+                    except Exception:
+                        pass
+                        
+    except Exception as e:
+        print(f"⚠️ Error checking manual SL: {e}")
+
+def validate_trading_balance(min_balance=1000, currency='JPY'):
+    """
+    Validate that trading balance is sufficient
+    
+    Args:
+        min_balance (float): Minimum required balance
+        currency (str): Currency to check (default: base_currency)
+        
+    Returns:
+        dict: {'sufficient': bool, 'balance': float, 'error': str}
+    """
+    try:
+        balance = binance.fetch_balance()
+        base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+        currency = base_currency
+        current_balance = balance[currency]['free'] if currency in balance else 0
+        
+        return {
+            'sufficient': current_balance >= min_balance,
+            'balance': current_balance,
+            'error': None
+        }
+    except Exception as e:
+        return {
+            'sufficient': False,
+            'balance': 0,
+            'error': str(e)
+        }
+
+def validate_required_functions(required_functions):
+    """
+    Validate that required functions exist and are callable
+    
+    Args:
+        required_functions (list): List of function names to validate
+        
+    Returns:
+        dict: {'valid': bool, 'missing': list}
+    """
+    missing = []
+    module_globals = globals()
+    
+    for func_name in required_functions:
+        if func_name not in module_globals or not callable(module_globals[func_name]):
+            missing.append(func_name)
+    
+    return {
+        'valid': len(missing) == 0,
+        'missing': missing
+    }
+
+def systematic():
     """Main entry point với systematic trading mặc định và scalping mode"""
     try:
         print("🚀 KHỞI ĐỘNG TRADING BOT")
         print("=" * 60)
-        
-        # Validate functions exist
-        if 'execute_systematic_trading' not in globals():
-            print("🚨 Lỗi: Không tìm thấy function execute_systematic_trading")
-            return
-        
-        if not callable(globals()['execute_systematic_trading']):
-            print("🚨 Lỗi: execute_systematic_trading không phải là function")
-            return
-        
-        # Kiểm tra xem có tham số command line không
-        import sys
-        if len(sys.argv) > 1:
-            if sys.argv[1] == "--scalping":
-                # CHẠY SCALPING MODE 15M
-                print("⚡ CHẠY SCALPING MODE 15M")
-                print("🎯 Strategy: Tận dụng sóng ngắn hạn + Oversold bounce")
-                print("📊 Timeframe: 15m | Risk: Thấp | Profit: Nhanh")
-                print("💡 Đặc điểm: Cho phép trade trong weak downtrend")
-                
-                # Validate scalping function exists
-                if 'execute_scalping_trading' not in globals():
-                    print("🚨 Lỗi: Không tìm thấy function execute_scalping_trading")
-                    return
-                
-                result = execute_scalping_trading()
-                
-                if result and result.get('success'):
-                    print("✅ SCALPING THÀNH CÔNG")
-                    if result.get('trades', 0) > 0:
-                        print(f"📊 Trades: {result['trades']}")
-                        print(f"💰 Investment: ¥{result.get('investment', 0):,.0f}")
-                        print(f"🎯 Expected: +{result.get('expected_profit', 0):.2f}%")
-                        print(f"🛡️ Max Risk: -{result.get('max_risk', 0):.2f}%")
-                else:
-                    print("❌ SCALPING GẶP LỖI")
-                    if result and result.get('error'):
-                        print(f"Lỗi: {result['error']}")
-                
-                return
-            
-            elif sys.argv[1] == "--traditional":
-                # Chạy traditional trading mode (legacy)
-                print("⚠️ CHẠY TRADITIONAL TRADING MODE (LEGACY)")
-                print("💡 Khuyến nghị: Sử dụng systematic trading để có hiệu quả tốt hơn")
-                
-                # Validate traditional functions exist
-                required_functions = ['print_results', 'startup_bot_with_error_handling', 'check_and_process_sell_orders']
-                missing = []
-                
-                module_globals = globals()
-                for func_name in required_functions:
-                    if func_name not in module_globals or not callable(module_globals[func_name]):
-                        missing.append(func_name)
-                
-                if missing:
-                    print(f"🚨 Lỗi: Thiếu traditional functions: {missing}")
-                    print("💡 Sử dụng systematic trading thay thế...")
-                    execute_systematic_trading()
-                    return
-                
-                # Run traditional mode
-                continuous_mode = TRADING_CONFIG.get('continuous_monitoring', True)
-                if continuous_mode:
-                    print("📊 Mode: CONTINUOUS TRADITIONAL")
-                    run_bot_continuously()
-                else:
-                    print("📊 Mode: MANUAL TRADITIONAL")
-                    run_manual_mode()
-                return
-            
-            elif sys.argv[1] == "--help":
-                print("📋 TRADING BOT - USAGE:")
-                print("   python app.py                    → Chạy systematic trading 30m (mặc định)")
-                print("   python app.py --scalping         → Chạy scalping mode 15m (MỚI)")
-                print("   python app.py --traditional      → Chạy traditional trading (legacy)")
-                print("   python app.py --help             → Hiển thị help này")
-                print("\n⚡ SCALPING MODE 15M (MỚI):")
-                print("   ✅ Tận dụng sóng ngắn hạn 15m")
-                print("   ✅ Cho phép trade trong weak downtrend") 
-                print("   ✅ TP/SL nhỏ, exit nhanh (15-60 phút)")
-                print("   ✅ Tìm cơ hội oversold bounce")
-                print("   ✅ Risk/Reward tối ưu cho scalping")
-                print("\n🎯 SYSTEMATIC TRADING 30M:")
-                print("   ✅ Phân tích đa khung thời gian") 
-                print("   ✅ Quản lý rủi ro thông minh")
-                print("   ✅ Phát hiện downtrend tự động")
-                print("   ✅ Tối ưu entry/exit points")
-                return
         
         # MẶC ĐỊNH: Chạy systematic trading 30m
         print("📊 SYSTEMATIC TRADING 30M (DEFAULT)")
@@ -4850,11 +4909,53 @@ def main():
         import traceback
         traceback.print_exc()
 
+def scalping():
+    """Main entry point với systematic trading mặc định và scalping mode"""
+    try:
+        print("🚀 KHỞI ĐỘNG TRADING BOT")
+        print("=" * 60)
+        
+        # Kiểm tra xem có tham số command line không
+        # CHẠY SCALPING MODE 15M
+        print("⚡ CHẠY SCALPING MODE 15M")
+        print("🎯 Strategy: Tận dụng sóng ngắn hạn + Oversold bounce")
+        print("📊 Timeframe: 15m | Risk: Thấp | Profit: Nhanh")
+        print("💡 Đặc điểm: Cho phép trade trong weak downtrend")
+        
+        # Validate scalping function exists
+        scalping_validation = validate_required_functions(['execute_scalping_trading'])
+        if not scalping_validation['valid']:
+            print(f"🚨 Lỗi: Thiếu scalping functions: {scalping_validation['missing']}")
+            return
+        
+        result = execute_scalping_trading()
+        
+        if result and result.get('success'):
+            print("✅ SCALPING THÀNH CÔNG")
+            if result.get('trades', 0) > 0:
+                print(f"📊 Trades: {result['trades']}")
+                print(f"💰 Investment: ¥{result.get('investment', 0):,.0f}")
+                print(f"🎯 Expected: +{result.get('expected_profit', 0):.2f}%")
+                print(f"🛡️ Max Risk: -{result.get('max_risk', 0):.2f}%")
+        else:
+            print("❌ SCALPING GẶP LỖI")
+            if result and result.get('error'):
+                print(f"Lỗi: {result['error']}")
+            
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Dừng bot")
+    except Exception as e:
+        print(f"🚨 Lỗi: {e}")
+        import traceback
+        traceback.print_exc()
+        
 # Hàm để chạy systematic trading manual (có thể gọi từ script khác)
 def run_systematic_trading():
     """Hàm để chạy systematic trading - có thể gọi từ bên ngoài"""
     return execute_systematic_trading()
-
+        
 # Chạy chương trình
 if __name__ == "__main__":
-    main()
+    #scalping()
+    systematic()
