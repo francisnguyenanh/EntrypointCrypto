@@ -1014,7 +1014,8 @@ def place_buy_order_with_sl_tp(symbol, quantity, entry_price, stop_loss, tp_pric
                 return {'status': 'failed', 'error': f'Quantity too small. Min: {min_amount}'}
             
             if final_quantity * current_price < min_cost:
-                return {'status': 'failed', 'error': f'Order value too small. Min: ¥{min_cost}'}
+                base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+                return {'status': 'failed', 'error': f'Order value too small. Min: {base_currency} {min_cost}'}
                 
         except Exception as market_error:
             pass  # Silent check
@@ -1360,7 +1361,8 @@ def handle_inventory_coins():
                 
                 current_value = quantity * coin_info['current_price']
                 if current_value < min_cost:
-                    print(f"   ⚠️ {coin_info['coin']}: Giá trị quá nhỏ (¥{current_value:.2f} < ¥{min_cost})")
+                    base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+                    print(f"   ⚠️ {coin_info['coin']}: Giá trị quá nhỏ ({base_currency} {current_value:.2f} < {base_currency} {min_cost})")
                     skipped_coins.append({
                         'coin': coin_info['coin'],
                         'quantity': quantity,
@@ -2468,6 +2470,114 @@ def calculate_tp_with_fees(entry_price, target_profit_percent, trading_fee_perce
     
     return tp_price
 
+# Hàm điều chỉnh TP/SL cho crypto base currency
+def adjust_tp_sl_for_crypto_base(tp_percent, sl_percent, base_currency):
+    """
+    Điều chỉnh TP/SL percentages cho crypto base currencies
+    
+    Args:
+        tp_percent: Take profit percent ban đầu
+        sl_percent: Stop loss percent ban đầu  
+        base_currency: Base currency (JPY, ETH, BTC)
+    
+    Returns:
+        dict: {
+            'adjusted_tp_percent': float,
+            'adjusted_sl_percent': float,
+            'adjustment_reason': str
+        }
+    """
+    
+    # Fiat currencies - giữ nguyên
+    fiat_currencies = ['JPY', 'USD', 'EUR', 'GBP', 'KRW']
+    if base_currency in fiat_currencies:
+        return {
+            'adjusted_tp_percent': tp_percent,
+            'adjusted_sl_percent': sl_percent,
+            'adjustment_reason': f'Fiat currency {base_currency} - no adjustment needed'
+        }
+    
+    # Crypto base currencies - cần điều chỉnh
+    crypto_adjustments = {
+        'ETH': {
+            'tp_multiplier': 1.5,  # ETH có volatility cao hơn fiat
+            'sl_multiplier': 1.2,  # SL cũng cần rộng hơn
+            'reason': 'ETH base - increased targets for crypto volatility'
+        },
+        'BTC': {
+            'tp_multiplier': 1.8,  # BTC có volatility cao nhất
+            'sl_multiplier': 1.3,  # SL rộng hơn để tránh whipsaw
+            'reason': 'BTC base - increased targets for high volatility'
+        },
+        'BNB': {
+            'tp_multiplier': 1.4,
+            'sl_multiplier': 1.15,
+            'reason': 'BNB base - moderate adjustment for exchange token'
+        },
+        'USDT': {
+            'tp_multiplier': 1.0,  # Stablecoin - như fiat
+            'sl_multiplier': 1.0,
+            'reason': 'USDT stablecoin - no adjustment needed'
+        },
+        'BUSD': {
+            'tp_multiplier': 1.0,  # Stablecoin - như fiat
+            'sl_multiplier': 1.0,
+            'reason': 'BUSD stablecoin - no adjustment needed'
+        }
+    }
+    
+    if base_currency in crypto_adjustments:
+        adjustment = crypto_adjustments[base_currency]
+        adjusted_tp = tp_percent * adjustment['tp_multiplier']
+        adjusted_sl = sl_percent * adjustment['sl_multiplier']
+        
+        return {
+            'adjusted_tp_percent': adjusted_tp,
+            'adjusted_sl_percent': adjusted_sl,
+            'adjustment_reason': adjustment['reason']
+        }
+    else:
+        # Unknown crypto - conservative adjustment
+        return {
+            'adjusted_tp_percent': tp_percent * 1.3,
+            'adjusted_sl_percent': sl_percent * 1.1,
+            'adjustment_reason': f'Unknown crypto {base_currency} - conservative adjustment'
+        }
+
+# Hàm tính toán minimum order value cho crypto base currency
+def get_min_order_value_for_base_currency(base_currency):
+    """
+    Lấy minimum order value phù hợp cho base_currency
+    
+    Args:
+        base_currency: Base currency (JPY, ETH, BTC, etc.)
+    
+    Returns:
+        float: Minimum order value
+    """
+    
+    # Minimum order values cho từng loại currency
+    min_values = {
+        # Fiat currencies (theo giá trị USD tương đương)
+        'JPY': 1500,    # ~10 USD
+        'USD': 10,      # 10 USD
+        'EUR': 9,       # ~10 USD
+        'GBP': 8,       # ~10 USD
+        'KRW': 13000,   # ~10 USD
+        
+        # Crypto currencies (theo số lượng coin tối thiểu có ý nghĩa)
+        'ETH': 0.005,   # 0.005 ETH (~10-15 USD ở giá 2000-3000)
+        'BTC': 0.0002,  # 0.0002 BTC (~10-15 USD ở giá 50000-70000)
+        'BNB': 0.03,    # 0.03 BNB (~10-15 USD ở giá 300-500)
+        
+        # Stablecoins - như fiat
+        'USDT': 10,     # 10 USDT
+        'BUSD': 10,     # 10 BUSD
+        'USDC': 10,     # 10 USDC
+    }
+    
+    return min_values.get(base_currency, 10)  # Default 10 units
+
 # Hàm tính toán entry, TP và SL thông minh dựa trên downtrend analysis
 def calculate_dynamic_entry_tp_sl(entry_price, order_book_analysis, downtrend_analysis):
     """
@@ -2475,6 +2585,7 @@ def calculate_dynamic_entry_tp_sl(entry_price, order_book_analysis, downtrend_an
     - Downtrend analysis strength
     - Order book conditions
     - Risk management principles
+    - Base currency type (fiat vs crypto)
     
     Args:
         entry_price: Giá vào lệnh cơ bản
@@ -2491,6 +2602,9 @@ def calculate_dynamic_entry_tp_sl(entry_price, order_book_analysis, downtrend_an
             'sl_reasoning': str
         }
     """
+    
+    # Lấy base_currency từ config
+    base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
     
     downtrend_detected = downtrend_analysis['detected']
     downtrend_strength = downtrend_analysis['strength']
@@ -2515,45 +2629,58 @@ def calculate_dynamic_entry_tp_sl(entry_price, order_book_analysis, downtrend_an
     optimal_entry = entry_price * (1 + entry_buffer)
     
     # === TAKE PROFIT CALCULATION ===
+    # Base percentages cho fiat currency
     if downtrend_detected:
         if downtrend_strength == "STRONG":
             # Rất conservative - lấy lời nhanh
-            tp_percent = 0.25  # 0.25% + fees
-            tp_reasoning = "Strong downtrend - quick profit taking"
+            tp_percent_base = 0.25  # 0.25% + fees
+            tp_reasoning_base = "Strong downtrend - quick profit taking"
         elif downtrend_strength == "MODERATE":
-            tp_percent = 0.3   # 0.3% + fees
-            tp_reasoning = "Moderate downtrend - conservative profit targets"
+            tp_percent_base = 0.3   # 0.3% + fees
+            tp_reasoning_base = "Moderate downtrend - conservative profit targets"
         else:  # WEAK
-            tp_percent = 0.35  # 0.35% + fees
-            tp_reasoning = "Weak downtrend - slightly reduced profit targets"
+            tp_percent_base = 0.35  # 0.35% + fees
+            tp_reasoning_base = "Weak downtrend - slightly reduced profit targets"
     else:
         # Normal market - sử dụng config hoặc order book analysis
         if order_book_analysis and order_book_analysis.get('ask_wall_price', 0) > optimal_entry:
             # Có resistance wall - conservative
-            tp_percent = 0.4   # 0.4% + fees (từ config)
-            tp_reasoning = "Normal market with resistance wall - standard targets"
+            tp_percent_base = 0.4   # 0.4% + fees (từ config)
+            tp_reasoning_base = "Normal market with resistance wall - standard targets"
         else:
-            tp_percent = 0.4   # 0.4% + fees (standard)
-            tp_reasoning = "Normal market - standard profit targets"
-    
-    # Tính TP price với fees
-    tp_price = calculate_tp_with_fees(optimal_entry, tp_percent)
-    
+            tp_percent_base = 0.4   # 0.4% + fees (standard)
+            tp_reasoning_base = "Normal market - standard profit targets"
+
     # === STOP LOSS CALCULATION ===
+    # Base percentages cho fiat currency
     if downtrend_detected:
         if downtrend_strength == "STRONG":
             # Stop loss rất chặt
-            sl_percent = 0.4  # -0.4%
-            sl_reasoning = "Strong downtrend - very tight stop loss"
+            sl_percent_base = 0.4  # -0.4%
+            sl_reasoning_base = "Strong downtrend - very tight stop loss"
         elif downtrend_strength == "MODERATE":
-            sl_percent = 0.5  # -0.5%
-            sl_reasoning = "Moderate downtrend - tight stop loss"  
+            sl_percent_base = 0.5  # -0.5%
+            sl_reasoning_base = "Moderate downtrend - tight stop loss"  
         else:  # WEAK
-            sl_percent = 0.6  # -0.6%
-            sl_reasoning = "Weak downtrend - moderately tight stop loss"
+            sl_percent_base = 0.6  # -0.6%
+            sl_reasoning_base = "Weak downtrend - moderately tight stop loss"
     else:
-        sl_percent = 0.8  # -0.8% normal
-        sl_reasoning = "Normal market - standard stop loss"
+        sl_percent_base = 0.8  # -0.8% normal
+        sl_reasoning_base = "Normal market - standard stop loss"
+
+    # === CRYPTO BASE CURRENCY ADJUSTMENT ===
+    # Điều chỉnh TP/SL cho crypto base currencies
+    adjustment_result = adjust_tp_sl_for_crypto_base(tp_percent_base, sl_percent_base, base_currency)
+    
+    tp_percent = adjustment_result['adjusted_tp_percent']
+    sl_percent = adjustment_result['adjusted_sl_percent']
+    
+    # Cập nhật reasoning với thông tin adjustment
+    tp_reasoning = f"{tp_reasoning_base} | {adjustment_result['adjustment_reason']}"
+    sl_reasoning = f"{sl_reasoning_base} | {adjustment_result['adjustment_reason']}"
+    
+    # Tính TP price với fees
+    tp_price = calculate_tp_with_fees(optimal_entry, tp_percent)
     
     # Tính stop loss price
     stop_loss = optimal_entry * (1 - sl_percent / 100)
@@ -2629,6 +2756,9 @@ def analyze_scalping_opportunity(symbol, current_price, order_book_analysis, df,
     # ===== TÍNH TOÁN ENTRY, TP, SL CHO SCALPING =====
     base_entry = order_book_analysis['best_ask']
     
+    # Lấy base_currency từ config
+    base_currency = TRADING_CONFIG.get('base_currency', 'JPY')
+    
     # Entry price với buffer nhỏ cho scalping
     entry_buffer = 0.0005  # 0.05% buffer cho scalping
     optimal_entry = base_entry * (1 + entry_buffer)
@@ -2637,7 +2767,7 @@ def analyze_scalping_opportunity(symbol, current_price, order_book_analysis, df,
     scalping_analysis_data = scalping_analysis.get('analysis_data', {})
     rsi_value = scalping_analysis_data.get('rsi', 50)
     
-    # Điều chỉnh TP dựa trên market condition và RSI
+    # Base rates cho fiat currency
     base_tp_rates = {
         "HIGH": 0.18,    # Giảm từ 0.25% xuống 0.18%
         "MEDIUM": 0.15,  # Giảm từ 0.20% xuống 0.15%  
@@ -2650,8 +2780,19 @@ def analyze_scalping_opportunity(symbol, current_price, order_book_analysis, df,
         "LOW": 0.08      # Giảm từ 0.10% xuống 0.08%
     }
     
-    tp_percent = base_tp_rates[scalping_opportunity]
-    sl_percent = base_sl_rates[scalping_opportunity]
+    tp_percent_base = base_tp_rates[scalping_opportunity]
+    sl_percent_base = base_sl_rates[scalping_opportunity]
+    
+    # === CRYPTO BASE CURRENCY ADJUSTMENT CHO SCALPING ===
+    # Điều chỉnh TP/SL cho crypto base currencies
+    adjustment_result = adjust_tp_sl_for_crypto_base(tp_percent_base, sl_percent_base, base_currency)
+    
+    tp_percent = adjustment_result['adjusted_tp_percent']
+    sl_percent = adjustment_result['adjusted_sl_percent']
+    
+    # Log adjustment nếu có thay đổi
+    if tp_percent != tp_percent_base or sl_percent != sl_percent_base:
+        reasons.append(f"Scalping TP/SL adjusted for {base_currency}: TP {tp_percent_base:.2f}%->{tp_percent:.2f}%, SL {sl_percent_base:.2f}%->{sl_percent:.2f}%")
     
     # ĐIỀU CHỈNH TP THÊM DỰA TRÊN RSI VÀ MARKET CONDITION
     if rsi_value < 25:  # Deep oversold - có thể bounce mạnh hơn

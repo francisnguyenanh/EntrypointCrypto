@@ -45,8 +45,8 @@ TRADING_CONFIG = {
     # Quản lý rủi ro
     'max_trades': 2,  # Tối đa 2 trades cùng lúc
     'risk_per_trade': 0.5,  # 50% tài khoản cho mỗi trade khi có 2 coins
-    'min_order_value': 1500,  # Giá trị order tối thiểu (JPY) - tương đương 10 USD
-    'max_order_value': 750000,  # Giá trị order tối đa (JPY) - tương đương 5000 USD
+    'min_order_value': 0.005,  # Giá trị order tối thiểu (ETH) - tương đương 10-15 USD
+    'max_order_value': 0.5,  # Giá trị order tối đa (ETH) - tương đương 1000-1500 USD
     
     # Slippage và fees
     'slippage': 0.001,  # 0.1% slippage cho market orders
