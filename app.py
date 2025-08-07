@@ -1,30 +1,4 @@
 import os
-"""
-EntrypointCrypto - Advanced Crypto Trading Bot
-=============================================
-
-LATEST FIXES (Aug 2, 2025):
-- ✅ Fixed critical unreachable code in execute_systematic_trading()
-- ✅ Improved function validation with centralized validation functions
-- ✅ Standardized error handling patterns across critical functions
-- ✅ Added balance validation utility function to reduce code duplication
-- ✅ Cleaned up code structure and removed dead code
-
-FEATURES:
-- 🎯 Systematic Trading 30m: Multi-timeframe analysis with strict downtrend avoidance
-- ⚡ Scalping Mode 15m: Quick trades allowing weak downtrends with oversold bounce
-- 🔄 2-Level Strategy: Systematic (Level 1) → Scalping (Level 2) fallback
-- 📊 Dynamic TP/SL: RSI-based adjustments for optimal risk/reward
-- 🛡️ Intelligent Risk Management: Position sizing based on confidence levels
-- 📈 Real-time Order Monitoring: Automated tracking and processing
-
-USAGE:
-- python app.py                 → Systematic trading (default)
-- python app.py --scalping      → Scalping mode 15m
-- python app.py --traditional   → Legacy mode
-- python app.py --help          → Show usage info
-"""
-
 import ccxt
 import pandas as pd
 import numpy as np
@@ -4888,97 +4862,11 @@ def validate_required_functions(required_functions):
         'missing': missing
     }
 
-def main():
+def systematic():
     """Main entry point với systematic trading mặc định và scalping mode"""
     try:
         print("🚀 KHỞI ĐỘNG TRADING BOT")
         print("=" * 60)
-        
-        # Validate core functions exist
-        core_functions = ['execute_systematic_trading']
-        validation = validate_required_functions(core_functions)
-        
-        if not validation['valid']:
-            print(f"🚨 Lỗi: Thiếu functions bắt buộc: {validation['missing']}")
-            return
-        
-        # Kiểm tra xem có tham số command line không
-        import sys
-        if len(sys.argv) > 1:
-            if sys.argv[1] == "--scalping":
-                # CHẠY SCALPING MODE 15M
-                print("⚡ CHẠY SCALPING MODE 15M")
-                print("🎯 Strategy: Tận dụng sóng ngắn hạn + Oversold bounce")
-                print("📊 Timeframe: 15m | Risk: Thấp | Profit: Nhanh")
-                print("💡 Đặc điểm: Cho phép trade trong weak downtrend")
-                
-                # Validate scalping function exists
-                scalping_validation = validate_required_functions(['execute_scalping_trading'])
-                if not scalping_validation['valid']:
-                    print(f"🚨 Lỗi: Thiếu scalping functions: {scalping_validation['missing']}")
-                    return
-                
-                result = execute_scalping_trading()
-                
-                if result and result.get('success'):
-                    print("✅ SCALPING THÀNH CÔNG")
-                    if result.get('trades', 0) > 0:
-                        print(f"📊 Trades: {result['trades']}")
-                        print(f"💰 Investment: ¥{result.get('investment', 0):,.0f}")
-                        print(f"🎯 Expected: +{result.get('expected_profit', 0):.2f}%")
-                        print(f"🛡️ Max Risk: -{result.get('max_risk', 0):.2f}%")
-                else:
-                    print("❌ SCALPING GẶP LỖI")
-                    if result and result.get('error'):
-                        print(f"Lỗi: {result['error']}")
-                
-                return
-            
-            elif sys.argv[1] == "--traditional":
-                # Chạy traditional trading mode (legacy)
-                print("⚠️ CHẠY TRADITIONAL TRADING MODE (LEGACY)")
-                print("💡 Khuyến nghị: Sử dụng systematic trading để có hiệu quả tốt hơn")
-                
-                # Validate traditional functions exist
-                required_functions = ['print_results', 'startup_bot_with_error_handling', 'check_and_process_sell_orders']
-                traditional_validation = validate_required_functions(required_functions)
-                
-                if not traditional_validation['valid']:
-                    print(f"🚨 Lỗi: Thiếu traditional functions: {traditional_validation['missing']}")
-                    print("💡 Sử dụng systematic trading thay thế...")
-                    execute_systematic_trading()
-                    return
-                
-                # Run traditional mode
-                continuous_mode = TRADING_CONFIG.get('continuous_monitoring', True)
-                if continuous_mode:
-                    print("📊 Mode: CONTINUOUS TRADITIONAL")
-                    run_bot_continuously()
-                else:
-                    print("📊 Mode: MANUAL TRADITIONAL")
-                    run_manual_mode()
-                return
-            
-            elif sys.argv[1] == "--help":
-                print("📋 TRADING BOT - USAGE:")
-                print("   python app.py                    → Chạy systematic trading 30m (mặc định)")
-                print("   python app.py --scalping         → Chạy scalping mode 15m (MỚI)")
-                print("   python app.py --traditional      → Chạy traditional trading (legacy)")
-                print("   python app.py --help             → Hiển thị help này")
-                print("\n⚡ SCALPING MODE 15M (MỚI):")
-                print("   ✅ Tận dụng sóng ngắn hạn 15m")
-                print("   ✅ Cho phép trade trong weak downtrend") 
-                print("   ✅ TP/SL nhỏ, exit nhanh (15-60 phút)")
-                print("   ✅ Tìm cơ hội oversold bounce")
-                print("   ✅ Risk/Reward tối ưu cho scalping")
-                print("   🆕 Auto Stop Loss trigger (thay thế OCO)")
-                print("\n🎯 SYSTEMATIC TRADING 30M:")
-                print("   ✅ Phân tích đa khung thời gian") 
-                print("   ✅ Quản lý rủi ro thông minh")
-                print("   ✅ Phát hiện downtrend tự động")
-                print("   ✅ Tối ưu entry/exit points")
-                print("   🆕 Auto Stop Loss trigger (thay thế OCO)")
-                return
         
         # MẶC ĐỊNH: Chạy systematic trading 30m
         print("📊 SYSTEMATIC TRADING 30M (DEFAULT)")
@@ -4998,11 +4886,53 @@ def main():
         import traceback
         traceback.print_exc()
 
+def scalping():
+    """Main entry point với systematic trading mặc định và scalping mode"""
+    try:
+        print("🚀 KHỞI ĐỘNG TRADING BOT")
+        print("=" * 60)
+        
+        # Kiểm tra xem có tham số command line không
+        # CHẠY SCALPING MODE 15M
+        print("⚡ CHẠY SCALPING MODE 15M")
+        print("🎯 Strategy: Tận dụng sóng ngắn hạn + Oversold bounce")
+        print("📊 Timeframe: 15m | Risk: Thấp | Profit: Nhanh")
+        print("💡 Đặc điểm: Cho phép trade trong weak downtrend")
+        
+        # Validate scalping function exists
+        scalping_validation = validate_required_functions(['execute_scalping_trading'])
+        if not scalping_validation['valid']:
+            print(f"🚨 Lỗi: Thiếu scalping functions: {scalping_validation['missing']}")
+            return
+        
+        result = execute_scalping_trading()
+        
+        if result and result.get('success'):
+            print("✅ SCALPING THÀNH CÔNG")
+            if result.get('trades', 0) > 0:
+                print(f"📊 Trades: {result['trades']}")
+                print(f"💰 Investment: ¥{result.get('investment', 0):,.0f}")
+                print(f"🎯 Expected: +{result.get('expected_profit', 0):.2f}%")
+                print(f"🛡️ Max Risk: -{result.get('max_risk', 0):.2f}%")
+        else:
+            print("❌ SCALPING GẶP LỖI")
+            if result and result.get('error'):
+                print(f"Lỗi: {result['error']}")
+            
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Dừng bot")
+    except Exception as e:
+        print(f"🚨 Lỗi: {e}")
+        import traceback
+        traceback.print_exc()
+        
 # Hàm để chạy systematic trading manual (có thể gọi từ script khác)
 def run_systematic_trading():
     """Hàm để chạy systematic trading - có thể gọi từ bên ngoài"""
     return execute_systematic_trading()
-
+        
 # Chạy chương trình
 if __name__ == "__main__":
-    main()
+    #scalping()
+    systematic()

@@ -1,11 +1,2 @@
 {
-  "141238483": {
-    "symbol": "ADA/JPY",
-    "order_type": "TAKE_PROFIT",
-    "buy_price": 106.08,
-    "stop_loss_price": 105.95394,
-    "added_time": 1754204364.901474,
-    "last_checked": 1754204364.969453,
-    "last_filled": 0
-  }
 }

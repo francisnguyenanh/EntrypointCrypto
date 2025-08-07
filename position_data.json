@@ -1,19 +1,2 @@
 {
-  "ADA": {
-    "symbol": "ADA/JPY",
-    "total_quantity": 22.2,
-    "total_cost": 2354.976,
-    "average_price": 106.08,
-    "buy_orders": [
-      {
-        "quantity": 22.2,
-        "price": 106.08,
-        "timestamp": "2025-08-03T15:59:18.016288",
-        "order_id": "141238477"
-      }
-    ],
-    "active_sell_orders": [],
-    "created_at": "2025-08-03T15:59:18.016252",
-    "updated_at": "2025-08-03T15:59:18.016276"
-  }
 }

@@ -10,22 +10,10 @@
 # 3. Tạo API key và secret
 # 4. Thay thế các giá trị dưới đây
 
-BINANCE_CONFIG = {
-    'apiKey': 'Jsk0G44imJ2iuOukTdWgh2AcsDinHmvsZQ4TaQtT5f1DS2euFqpdaShYfAfZSnRa',  # Thay bằng API key testnet
-    'secret': 'aVPzEXAwpqiMTY7EZa2BeCTSGnh8aSJcrRkJns0PhUr2KZRNDXvG5QDWSTAQ7q3a',   # Thay bằng secret testnet
-    'sandbox': False,  # PHẢI LÀ True cho testnet
-    'enableRateLimit': True,
-    'timeout': 30000,
-    'options': {
-        'defaultType': 'spot',  # spot trading
-        'recvWindow': 60000,
-    }
-}
-#Testnet
 # BINANCE_CONFIG = {
-#     'apiKey': 'HL4vtEnEMo3M5Ut5TFXKbj3gbwS9WoU5MFtAwiqUkH6fchlbgbaQpp6dZIQvbg6T',  # Thay bằng API key testnet
-#     'secret': 'd2c633SMoBaTjPp9z63fPn6TRcsV9n0yoNOB7iBMvRyNxySNJpBx48l0d5edztFO',   # Thay bằng secret testnet
-#     'sandbox': True,  # PHẢI LÀ True cho testnet
+#     'apiKey': 'Jsk0G44imJ2iuOukTdWgh2AcsDinHmvsZQ4TaQtT5f1DS2euFqpdaShYfAfZSnRa',  # Thay bằng API key testnet
+#     'secret': 'aVPzEXAwpqiMTY7EZa2BeCTSGnh8aSJcrRkJns0PhUr2KZRNDXvG5QDWSTAQ7q3a',   # Thay bằng secret testnet
+#     'sandbox': False,  # PHẢI LÀ True cho testnet
 #     'enableRateLimit': True,
 #     'timeout': 30000,
 #     'options': {
@@ -33,6 +21,19 @@ BINANCE_CONFIG = {
 #         'recvWindow': 60000,
 #     }
 # }
+
+#Testnet
+BINANCE_CONFIG = {
+    'apiKey': 'HL4vtEnEMo3M5Ut5TFXKbj3gbwS9WoU5MFtAwiqUkH6fchlbgbaQpp6dZIQvbg6T',  # Thay bằng API key testnet
+    'secret': 'd2c633SMoBaTjPp9z63fPn6TRcsV9n0yoNOB7iBMvRyNxySNJpBx48l0d5edztFO',   # Thay bằng secret testnet
+    'sandbox': True,  # PHẢI LÀ True cho testnet
+    'enableRateLimit': True,
+    'timeout': 30000,
+    'options': {
+        'defaultType': 'spot',  # spot trading
+        'recvWindow': 60000,
+    }
+}
 
 # =============================================================================
 # TRADING CONFIGURATION
