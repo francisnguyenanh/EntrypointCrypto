@@ -4,7 +4,8 @@
 Account Info và Notification Functions
 """
 
-import ccxt
+from binance.client import Client
+from binance.exceptions import BinanceAPIException, BinanceOrderException
 import trading_config
 import smtplib
 from email.mime.text import MIMEText
@@ -13,10 +14,27 @@ from email.mime.multipart import MIMEMultipart
 def get_account_info():
     """Lấy thông tin tài khoản chi tiết"""
     try:
-        binance = ccxt.binance(trading_config.BINANCE_CONFIG)
+        binance = Client(
+            api_key=trading_config.BINANCE_CONFIG['api_key'],
+            api_secret=trading_config.BINANCE_CONFIG['api_secret'],
+            testnet=trading_config.BINANCE_CONFIG['testnet']
+        )
         
-        # Lấy balance
-        balance = binance.fetch_balance()
+        # Lấy account info
+        account = binance.get_account()
+        balances = account['balances']
+        
+        # Chuyển đổi format để tương thích với code cũ
+        balance = {'free': {}, 'used': {}, 'total': {}}
+        for bal in balances:
+            asset = bal['asset']
+            free = float(bal['free'])
+            locked = float(bal['locked'])
+            total = free + locked
+            
+            balance['free'][asset] = free
+            balance['used'][asset] = locked
+            balance['total'][asset] = total
         
         # Hiển thị số dư tiền tệ
         print("  SỐ DƯ TIỀN TỆ:")
@@ -44,14 +62,16 @@ def get_account_info():
         for symbol, amounts in balance['total'].items():
             if amounts > 0 and symbol not in fiat_currencies:
                 try:
-                    ticker = binance.fetch_ticker(f"{symbol}/USDT")
-                    current_price = ticker['last']
+                    # Thử lấy giá USDT trước
+                    ticker = binance.get_symbol_ticker(symbol=f"{symbol}USDT")
+                    current_price = float(ticker['price'])
                     value_usd = amounts * current_price
                     total_crypto_value += value_usd
                 except:
                     try:
-                        ticker = binance.fetch_ticker(f"{symbol}/JPY")
-                        current_price = ticker['last']
+                        # Nếu không có USDT, thử JPY
+                        ticker = binance.get_symbol_ticker(symbol=f"{symbol}JPY")
+                        current_price = float(ticker['price'])
                         value_usd = amounts * current_price / 150
                         total_crypto_value += value_usd
                     except:
@@ -63,14 +83,15 @@ def get_account_info():
         # Kiểm tra orders đang mở
         print("\n  ORDERS ĐANG MỞ:")
         try:
-            # Tắt cảnh báo về fetchOpenOrders không có symbol
-            binance.options["warnOnFetchOpenOrdersWithoutSymbol"] = False
-            open_orders = binance.fetch_open_orders()
+            open_orders = binance.get_open_orders()
             if open_orders:
                 print(f"   📊 Tổng cộng: {len(open_orders)} orders")
                 for order in open_orders:
-                    print(f"   • {order['symbol']}: {order['side'].upper()} {order['amount']:.6f} @ {order['price']:.4f}")
-
+                    # Chuyển đổi symbol format để hiển thị
+                    display_symbol = order['symbol'][:3] + '/' + order['symbol'][3:]
+                    print(f"   • {display_symbol}: {order['side'].upper()} {float(order['origQty']):.6f} @ {float(order['price']):.4f}")
+            else:
+                print("   ✅ Không có orders đang mở")
         except Exception as e:
             print(f"   ⚠️ Không thể lấy thông tin orders: {e}")
         

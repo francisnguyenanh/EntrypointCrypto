@@ -10,29 +10,18 @@
 # 3. Tạo API key và secret
 # 4. Thay thế các giá trị dưới đây
 
+# Production config (commented for safety)
 # BINANCE_CONFIG = {
-#     'apiKey': 'Jsk0G44imJ2iuOukTdWgh2AcsDinHmvsZQ4TaQtT5f1DS2euFqpdaShYfAfZSnRa',  # Thay bằng API key testnet
-#     'secret': 'aVPzEXAwpqiMTY7EZa2BeCTSGnh8aSJcrRkJns0PhUr2KZRNDXvG5QDWSTAQ7q3a',   # Thay bằng secret testnet
-#     'sandbox': False,  # PHẢI LÀ True cho testnet
-#     'enableRateLimit': True,
-#     'timeout': 30000,
-#     'options': {
-#         'defaultType': 'spot',  # spot trading
-#         'recvWindow': 60000,
-#     }
+#     'api_key': 'your_production_api_key',
+#     'api_secret': 'your_production_api_secret',
+#     'testnet': False
 # }
 
-#Testnet
+# Testnet config (SAFE FOR TESTING)
 BINANCE_CONFIG = {
-    'apiKey': 'HL4vtEnEMo3M5Ut5TFXKbj3gbwS9WoU5MFtAwiqUkH6fchlbgbaQpp6dZIQvbg6T',  # Thay bằng API key testnet
-    'secret': 'd2c633SMoBaTjPp9z63fPn6TRcsV9n0yoNOB7iBMvRyNxySNJpBx48l0d5edztFO',   # Thay bằng secret testnet
-    'sandbox': True,  # PHẢI LÀ True cho testnet
-    'enableRateLimit': True,
-    'timeout': 30000,
-    'options': {
-        'defaultType': 'spot',  # spot trading
-        'recvWindow': 60000,
-    }
+    'api_key': 'HL4vtEnEMo3M5Ut5TFXKbj3gbwS9WoU5MFtAwiqUkH6fchlbgbaQpp6dZIQvbg6T',
+    'api_secret': 'd2c633SMoBaTjPp9z63fPn6TRcsV9n0yoNOB7iBMvRyNxySNJpBx48l0d5edztFO',
+    'testnet': True  # MUST be True for testnet
 }
 
 # =============================================================================
@@ -45,8 +34,8 @@ TRADING_CONFIG = {
     # Quản lý rủi ro
     'max_trades': 2,  # Tối đa 2 trades cùng lúc
     'risk_per_trade': 0.5,  # 50% tài khoản cho mỗi trade khi có 2 coins
-    'min_order_value': 0.005,  # Giá trị order tối thiểu (ETH) - tương đương 10-15 USD
-    'max_order_value': 0.5,  # Giá trị order tối đa (ETH) - tương đương 1000-1500 USD
+    'min_order_value': 1500,  # Giá trị order tối thiểu (JPY) - tương đương 10 USD
+    'max_order_value': 750000,  # Giá trị order tối đa (JPY) - tương đương 5000 USD
     
     # Slippage và fees
     'slippage': 0.001,  # 0.1% slippage cho market orders
@@ -90,7 +79,7 @@ TRADING_CONFIG = {
     'emergency_stop': False,  # Emergency stop trading
     
     # JPY specific settings
-    'base_currency': 'ETH',  # Sử dụng JPY làm base currency
+    'base_currency': 'JPY',  # Sử dụng JPY làm base currency
     'jpy_to_usd_rate': 150,  # Tỷ giá JPY/USD để tham khảo (1 USD = 150 JPY)
 }
 

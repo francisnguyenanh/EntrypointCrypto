@@ -448,7 +448,9 @@ class PositionManager:
                             
                             # Kiểm tra balance để xác định có bán hay không
                             try:
-                                current_balance = exchange_api.fetch_balance()[coin]['free']
+                                account_info = exchange_api.get_account()
+                                balances = {b['asset']: float(b['free']) for b in account_info['balances']}
+                                current_balance = balances.get(coin, 0.0)
                                 expected_balance = position['total_quantity']
                                 
                                 if current_balance < expected_balance:
@@ -459,7 +461,8 @@ class PositionManager:
                                     print(f"   📊 Expected: {expected_balance}, Actual: {current_balance}")
                                     
                                     # Lấy giá hiện tại làm estimate
-                                    current_price = exchange_api.fetch_ticker(position['symbol'])['last']
+                                    ticker = exchange_api.get_symbol_ticker(symbol=position['symbol'])
+                                    current_price = float(ticker['price'])
                                     
                                     # Update position
                                     self.update_position_after_sell(
